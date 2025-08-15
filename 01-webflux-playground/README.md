@@ -263,3 +263,262 @@ Sin embargo, en un controller web tradicional no se puede hacer esto. U obtenemo
   - Reacting quickly
   - Streaming response
   - Cancel
+
+# Spring Data R2DBC
+
+`R2DBC` significa `Reactive Relational Database Connectivity`.
+
+Documentación: 
+
+- `https://r2dbc.io/spec/1.0.0.RELEASE/spec/html/`.
+- `https://r2dbc.io/drivers/`.
+- `https://r2dbc.io/spec/1.0.0.RELEASE/spec/html/#datatypes`.
+- `https://docs.spring.io/spring-data/relational/reference/r2dbc.html`.
+- `https://docs.spring.io/spring-data/relational/reference/r2dbc/query-methods.html`.
+- `https://medium.com/@padiahrohit/enable-h2-console-in-java-reactive-environmant-dcfcfdd6858a`
+
+## Introduction
+
+Qué es `R2DBC`.
+
+- JPA es una especificación.
+  - Se usa en programación tradicional síncrona.
+- R2DBC es una especificación separada.
+  - Se usa en programación reactiva.
+- R2DBC no es exactamente lo mismo que JPA.
+
+Características de `R2DBC`:
+
+- Prioriza
+  - Rendimiento
+  - Escalabilidad
+  - Streaming + Backpressure (se hará una demo con un driver Postgres)
+- No tiene características tipo Hibernate como
+  - @OneToMany
+  - @ManyToMany
+  - ...
+
+R2DBC soporta mapeo de objetos de entidad simple.
+
+Para ver documentación de los drivers que soporta actualmente R2DBC ver: `https://r2dbc.io/drivers/`.
+
+En este curso usaremos la BD H2 por motivos de aprendizaje y se hará una demo con un driver Postgres más tarde.
+
+Tenemos `Spring Data R2DBC`, que es un envoltorio alrededor de `R2DBC`.
+
+Aunque ya se ha dicho que no es lo mismo `R2DBC` que `JPA`, si se ha usado `Spring Data JPA`, al usar este nuevo `Spring Data R2DBC` no notaremos ninguna diferencia. Su uso simplifica todo mucho. 
+
+Crearemos una interface y proveeremos `Query Methods` como estos.
+
+![alt Spring Data R2DBC Methods](./images/08-SpringDataR2DBCMethods.png)
+
+Spring hará toda la magia y automáticamente creará los SQL`s. Lo importante es que indicaremos el tipo de retorno publisher (Mono o Flux).
+
+## Connection String
+
+Estas con cadenas de conexión para las BD H2, Postgres y MySql:
+
+![alt R2DBC Drivers](./images/09-R2DBC-Drivers.png)
+
+Indicamos esta tabla como documentación, pero no hace falta indicarlo porque Spring lo hace automáticamente por nosotros.
+
+Estas son las propiedades de configuración que tenemos que indicar en el fichero `application.properties` para poder conectarnos a Postgres.
+
+![alt R2DBC Config](./images/10-R2DBC-Config.png)
+
+**Recursos para R2DBC**
+
+Scripts de Inicialización de BD
+
+- For db initialization scripts
+  - `spring.sql.init.data-locations=classpath:sql/data.sql`
+- To show SQL
+  - `logging.level.org.springframework.r2dbc=TRACE`
+
+## Project Setup
+
+Estas son las tablas (y sus relaciones) del proyecto que se va a realizar en esta sección:
+
+![alt R2DBC Tables](./images/11-R2DBC-Tables.png)
+
+En `src/main/resources/sql` esta el código `data.sql` con los SQL`s necesarios para que Spring pueda crear estas tablas.
+
+Nuestro proyecto lo vamos a hacer en `src/java/com/jmunoz/playground/sec02` pero vamos a tener un problema. 
+
+Cuando Spring se ejecute, va a intentar escanear todos los paquetes y crear los beans. Esto puede causar algún conflicto, como que exista la misma clase de ProductRepository, por ejemplo, en distintos paquetes.
+
+Para evitar esto, vamos a usar la propiedad `scanBasePackages` en `WebfluxPlaygroundApplication.java` para que Spring no escanee todos los paquetes, solo los que le digamos.
+
+Por tanto, creamos/modificamos las clases siguientes:
+
+- `WebfluxPlaygroundApplication.java`
+  - El main, donde indicaremos que paquete tiene que escanear Spring para crear sus beans.
+- `application.properties`
+  - Indicamos la configuración de la BD para R2DBC.
+
+## Customer Entity / Repository
+
+Creamos la clase entity y la interfaz repository para la tabla `customer`.
+
+En `src/java/com/jmunoz/playground/sec02` creamos las clases:
+
+- `Customer`
+  - Es la clase entity que representa a la tabla `customer`.
+  - En el package entity.
+- `CustomerRepository`
+  - Es la interfaz repository que usaremos para tener ya creado un CRUD.
+  - Extiende de `ReactiveCrudRepository`.
+  - En el package repository.
+
+En `src/test/java/com/jmunoz/playground.tests.sec02` creamos la clase:
+- `AbstractTest`
+  - Es una clase abstracta que extenderemos para hacer tests.
+
+## StepVerifier - Crash Course
+
+Vamos a jugar con R2DBC query methods y a escribir tests durante las siguientes clases.
+
+Es un prerequisito tener nociones de StepVerifier y estos métodos para poder escribir tests:
+
+- StepVerifier.create(...)
+- Next
+  - expectNext(...)
+  - expectNextCount()
+  - thenConsumeWhile(...)
+  - assertNext(...)
+- Complete/Error
+  - expectComplete()
+  - expectError()
+- Verify (¡No olvidarlo! Es quien se subscribe y ejecuta el test)
+  - verity()
+
+## CRUD Using Repository
+
+En `src/test/java/com/jmunoz/playground.tests.sec02` creamos la clase:
+
+- `Lec01CustomerRepositoryTest`
+  - Es un test sobre la interface CustomerRepository.
+
+Sobre la mutación de objetos (test sobre update) tener en cuenta:
+
+- La programación reactiva es una programación de estilo funcional particularmente para aplicaciones con IO intensivas.
+- La programación funcional prefiere funciones puras (sin efectos secundarios)
+  - Preferir funciones puras donde sea posible, pero no ciegamente en todas partes.
+- ¡Nuestra tabla de BD es mutable! ¡Nuestro objeto entidad es mutable!
+  - ¡Mutar está bien!
+
+Para mutar un registro, tenemos que hacerlo via el pipeline reactivo, y usaremos el operador `doOnNext(...)`.
+
+Ejemplo: 
+
+```java
+// IO no bloqueante.
+// Con doOnNext() podemos mutar objetos.
+// Los operadores, para un item, no se invocan concurrentemente. ¡Es secuencial!
+this.repository.findById(1)
+        .doOnNext(c -> c.setName("sam"));
+
+// Esto es equivalente al estilo tradicional
+var customer = getCustomer(1);
+customer.setName("sam");
+```
+
+## R2DBC - Show SQL
+
+Para poder ver las sentencias SQL que se están ejecutando (siempre para propósitos de debug) tenemos que indicar una propiedad.
+
+Se puede hacer en `application.properties` pero en este caso lo vamos a hacer en la clase `AbstractTest` (aunque la dejamos comentada).
+
+Esta propiedad es realmente a nivel de logger, y es la siguiente:
+
+`logging.level.org.springframework.r2dbc=DEBUG`
+
+## Product Entity / Repository
+
+Creamos la clase entity y la interfaz repository para la tabla `product`.
+
+En `src/java/com/jmunoz/playground/sec02` creamos las clases:
+
+- `Product`
+    - Es la clase entity que representa a la tabla `product`.
+    - En el package entity.
+- `ProductRepository`
+    - Es la interfaz repository que usaremos para tener ya creado un CRUD.
+    - Extiende de `ReactiveCrudRepository`.
+    - En el package repository.
+
+En `src/test/java/com/jmunoz/playground.tests.sec02` creamos la clase:
+
+- `Lec02ProductRepositoryTest`
+    - Es un test sobre la interface ProductRepository.
+
+## Pageable
+
+Spring Data R2DBC soporta resultados paginados.
+
+Se usa la interface `Pageable` para hacer peticiones de chunks de data cuando tenemos set de datos muy grandes. Por ejemplo:
+
+- Page 1, Size 10
+- Ordenar por Price ascendente
+
+Añadimos la paginación en `ProductRepository` y le hacemos tests en `Lec02ProductRepositoryTest`.
+
+## Complex Queries / Join
+
+Para consultas complejas o joins, es preferible usar SQL, ya que es eficiente y evitamos el problema N+1 (referencias circulares).
+
+Además, R2DBC no tiene anotaciones para `@ManyToMany`... ya que intenta ser muy sencillo y centrarse en rendimiento y escalabilidad.
+
+Es por ello que R2DBC prefiere sentencias SQL para consultas complejas, porque son más eficientes.
+
+Las sentencias SQL pueden ejecutarse de dos formas distintas:
+
+- Usar el Repository.
+  - Usamos la anotación `@Query` y la sentencia SQL.
+- Database client.
+
+Vamos a ver un ejemplo de cada posibilidad.
+
+## Join Query Using @Query
+
+En `src/java/com/jmunoz/playground/sec02` creamos las clases:
+
+- `CustomerOrder`
+    - Es la clase entity que representa a la tabla `customer_order`.
+    - En el package entity.
+- `CustomerOrderRepository`
+    - Es la interfaz repository que usaremos para tener ya creado un CRUD.
+    - Extiende de `ReactiveCrudRepository`.
+    - En el package repository.
+
+En `src/test/java/com/jmunoz/playground.tests.sec02` creamos la clase:
+
+- `Lec03CustomerOrderRepositoryTest`
+    - Es un test sobre la interface CustomerOrderRepository.
+
+## Projection
+
+Vamos a obtener distintos campos de las distintas tablas de las que consta nuestro proyecto. A esto se le llama `projection`.
+
+Podemos crear una clave Java (records) que represente la fila que queremos obtener.
+
+En `src/java/com/jmunoz/playground/sec02` creamos la clase:
+
+- `OrderDetails`
+    - Record con la representación de la fila que queremos obtener en la query. 
+    - En el package dto.
+
+Añadimos un nuevo método a `CustomerOrderRepository` y lo probamos en `Lec03CustomerOrderRepositoryTest`.
+
+## R2DBC Database Client
+
+Usando DatabaseClient podemos ejecutar cualquier SQL sin necesidad de tener un repository.
+
+En `src/test/java/com/jmunoz/playground.tests.sec02` creamos la clase:
+
+- `Lec04DatabaseClientTest`
+    - Es un test para probar SQLs complejos usando DatabaseClient.
+
+## Testing
+
+Para probar los tests, solo tenemos que ir a cada una de las clases de test y ejecutarlos.
