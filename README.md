@@ -90,3 +90,36 @@ Ver proyecto `01-webflux-playground`, paquete `sec02` para el proyecto con R2DBC
     - Es un test sobre la interface CustomerOrderRepository.
   - `Lec04DatabaseClientTest`
     - Es un test para probar SQLs complejos usando DatabaseClient.
+
+## R2DBC vs JPA/JDBC
+
+Ver el proyecto `04-r2dbc-vs-jdbc` que da el profesor. Todo el proyecto ya viene codificado y solo tenemos que mirar las clases.
+
+[README.md](./04-r2dbc-vs-jdbc/reactive-vs-traditional-postgres/README.md)
+
+Es otra comparación entre reactivo y tradicional.
+
+En concreto, se van a comparar las siguientes características del módulo Spring Data R2DBC contra el módulo Spring Data JPA:
+
+- Eficiencia de recursos
+  - Cuantos recursos de sistema usan.
+- Rendimiento
+  - Número de tareas ejecutadas por unidad de tiempo.
+
+**Notas**
+
+- No traeremos otras aplicaciones / capas web en el test, porque el resultado no sería preciso.
+- No usaremos queries de larga ejecución.
+  - Queremos testear r2dbc vs jdbc/jpa.
+  - No el motor de BD.
+  - Esas queries de larga ejecución serían buenas para comparar postgres contra mysql, cosa que no queremos.
+
+**Configuración**
+
+Esta es la configuración del proyecto:
+
+![alt Configuración R2DBC vs JDBC](./images/03-R2dbcVsJDBCSetup.png)
+
+- Ejecutar `docker-compose up`.
+- Monitorizar la consola. Asegurar que tenemos 10 millones de customers insertados.
+  - Esperar al mensaje `database system is ready to accept connections`.
