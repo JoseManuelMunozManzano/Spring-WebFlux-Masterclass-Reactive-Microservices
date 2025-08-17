@@ -522,3 +522,167 @@ En `src/test/java/com/jmunoz/playground.tests.sec02` creamos la clase:
 ## Testing
 
 Para probar los tests, solo tenemos que ir a cada una de las clases de test y ejecutarlos.
+
+# Reactive CRUD APIs with WebFlux
+
+## Introduction
+
+En esta sección vemos como exponer REST APIs con Spring WebFlux, en concreto los relacionados a Customer.
+
+![alt Reactive Controller](./images/04-ReactiveController.png)
+
+En secciones anteriores ya se crearon las clases de Entity y de Repository, así que podemos usarlas y, en esta sección, nos enfocamos en las clases service y controller.
+
+Es decir, solo nos centraremos en los CRUD APIs, no vamos a gestionar excepciones ni validaciones de entrada. Se verán en secciones posteriores. 
+
+En `src/java/com/jmunoz/playground/sec03` creamos los paquetes y clases:
+
+- `controller`
+- `dto`
+- `entity`
+  - `Customer`: Copiado de `sec02/entity`.
+- `mapper`
+- `repository`
+  - `CustomerRepository`: Copiado de `sec02/repository`.
+- `service`
+
+## Do we need DTO (Data Transfer Object)?
+
+¿Por qué crear clases DTO que son iguales que las clases entity? ¿Las necesitamos?
+
+La respuesta corta es:
+
+- ¡Depende!
+  - No las uses si no te gustan.
+  - Todo depende del equipo y de la aplicación.
+
+Una respuesta más elaborada es esta:
+
+- Una clase entity representa la data almacenada en una tabla de BD.
+- Una clase DTO representa la API / data que compartimos con los clientes.
+
+Muchas veces parecerán iguales, pero no tiene por qué. Por ejemplo, una clase entity puede tener un campo de password y la clase DTO no debería tener ese campo por razones de seguridad.
+
+O en una clase entity podemos almacenar una fecha en formato UTC, para guardarla en BD, mientras que en una clase DTO vamos a querer devolver al cliente una fecha en formato LocalDateTime.
+
+Una clase DTO también nos permite versionar nuestra API. Por ejemplo, para la misma clase entity, podemos tener la clase `CustomerDto` y más adelante crear `CustomerDtoV2` en la que varía el nombre de un campo, y ambas versiones de DTO siguen funcionando, una para unos clientes y la V2 para otros.
+
+- Ventajas de usar DTO
+  - Desacoplamiento (decoupling)
+    - Tabla BD vs API
+  - Seguridad
+    - Exposición de data
+    - La entidad Customer podría tener campos como password que la clase DTO no debe tener.
+  - Versionado
+  - Reglas de validación al hacer POST de data en la API
+
+## DTO / Entity / Repository
+
+En esta clase nos centramos en las clases DTO y Mapper.
+
+En `src/java/com/jmunoz/playground/sec03`, en los paquetes indicados creamos las clases:
+
+- `dto`
+  - `CustomerDto`: Es un record.
+- `mapper`
+  - `EntityDtoMapper`: Es sobre todo, una clase utility para convertir de entity a dto y al revés.
+
+## Service Class Implementation
+
+En esta clase trabajamos en la capa de servicio.
+
+En `src/java/com/jmunoz/playground/sec03`, en los paquetes indicados creamos las clases:
+
+- `service`
+  - `CustomerService`
+
+## Controller
+
+En esta clase exponemos las APIs CRUD via un controller.
+
+En `src/java/com/jmunoz/playground/sec03`, en los paquetes indicados creamos las clases:
+
+- `controller`
+  - `CustomerController`
+
+## FAQ - @RequestBody Mono<T> vs T
+
+En esta clase vemos la diferencia que hay entre que un cliente nos envíe un body publisher Mono<T> versus que nos envíe un tipo T directamente.
+
+![alt CustomerDto vs Mono<CustomerDto>](./images/12-CustomerDtoVsMonoCustomerDto.png)
+
+Ambos enfoques funcionarán bien, por tanto, ¿hay alguna diferencia?
+
+Si, y para entenderlo, veamos este ejemplo: Imaginemos que tenemos dos microservicios, uno que llama al otro, el Request Body no viene como en la imagen de arriba, porque va a haber un handshake de tres vías entre los dos servicios para establecer la conexión, y luego el cliente transferirá el Request Body como un array de bytes.
+
+Cuando tenemos un DTO como en la imagen de arriba, estamos preguntando por un objeto deserializado y Spring Framework recogerá todos los bytes decodificados al objeto, y luego invocará al método saveCustomer().
+
+En la imagen de abajo, en cambio, tenemos un publisher así que el método puede ser invocado incluso antes de recibir todos los requests. No hay ningún problema, porque realizamos toda la lógica de negocio como parte de los operadores y estos serán ejecutados solo cuando obtengamos la data, como parte del pipeline reactivo.
+
+Por tanto, como parte de la invocación del método, solo construimos el pipeline reactivo.
+
+Entonces, para casos como el de la imagen, no va a haber mucho beneficio y cualquiera de los dos enfoques va a funcionar perfectamente. Pero más tarde hablaremos del streaming y de las ventajas de usar un tipo publisher.
+
+## CRUD APIs Demo
+
+Vamos a probar nuestras APIs usando Postman.
+
+No vamos a tener en cuenta, por ahora, casos en los que no encontremos un customerId, ya que no devolvemos un status 400 Bad Request. Esto lo haremos después.
+
+Modificamos `application.properties` para cambiar la property `sec=sec03` y ejecutamos nuestra app `WebfluxPlaygroundApplication`.
+
+Abrimos Postman e importamos el archivo incluido en la carpeta `postman/sec03`.
+
+## Mono/Flux - Response Entity
+
+Si en nuestras pruebas hacemos una petición a getCustomer indicando el id 11, que no existe, obtenemos un status code 200, lo que es erroneo, ya que ese id no existe.
+
+En esta clase vamos a devolver HTTP Status Codes.
+
+- Mono/Flux son tipos Publisher
+  - data/empty => 200
+  - error => 500
+- ResponseEntity
+  - Mono<ResponseEntity<T>>
+    - 400
+    - 404
+    - 429
+    - ...
+
+Como parte de nuestro controller, devolvemos un tipo de publisher, Mono o Flux.
+
+Ya hemos comentado que Spring Framework, por detrás, se subscribirá a nuestros publisher, sea lo que sea que devuelven.
+
+Cuando se subscriban, buscarán la data o la señal empty, y en ambos casos se asumirá que el status code es 200, success.
+
+Pero si se emite una señal de error, se asume que algo malo ha pasado y se devuelve un status code 500, Internal Server Error.
+
+Este es el comportamiento por defecto.
+
+Por eso, cuando preguntamos por un id inexistente, el status code que nos devuelve es 200, porque el publisher ha enviado la señal empty en la response body.
+
+Pero nosotros queremos que nuestra app envíe status code apropiados, como 404, 429..., y para ello tenemos que enviar `Mono<ResponseEntity<T>>` con el status code apropiado, para que Spring Framework devuelva los status code al cliente.
+
+Tener en cuenta una cosa, mientras que `Mono<ResponseEntity<T>>` tiene sentido, `Flux<ResponseEntity<T>>` no lo tiene, porque Flux es streaming, es decir, cuando el cliente envía una petición, el servidor puede enviar una respuesta streaming al cliente, múltiples mensajes al cliente.
+
+![alt Flux => Streaming](./images/13-FluxStreaming.png)
+
+Por tanto, si indicamos `Flux<ResponseEntity<T>>` lo que esto significa NO es que estaremos enviando cada vez 200-Ok, 200-Ok, 200-Ok y 200-Ok, sino que enviaremos una vez 200-Ok y ya, el siguiente no puede ser 400 y el siguiente 500. No podemos cambiarlos.
+
+Es decir, ResponseEntity o status code solo puede establecerse una vez. Cuando el cliente envía una petición, el servidor devuelve ResponseEntity solo una vez al cliente.
+
+Por eso, no tiene sentido un `Flux<ResponseEntity<T>>`, solo `Mono<ResponseEntity<T>>`.
+
+Si realmente necesitamos enviar un Flux, podemos enviar `ResponseEntity<Flux<T>>`. De esta forrma, devolvemos ResponseStatus y los headers inmediatamente de forma bloqueante y síncrona, y el body llegará más tarde, de forma asíncrona. Sin embargo, se sugiere mantener Flux para streaming, porque es ahí donde tiene sentido.
+
+Con `Mono<ResponseEntity<T>>` devolvemos todo, ResponseStatus, headers y body, de forma asíncrona en un momento posterior.
+
+También es posible devolver `Mono<ResponseEntity<Mono<T>>>` o `Mono<ResponseEntity<Flux<T>>>` pero es confuso y es mejor evitarlo.
+
+Ver documentación: `https://docs.spring.io/spring-framework/reference/web/webflux/controller/ann-methods/responseentity.html`
+
+## Handling 4XX via Response Entity
+
+Vamos a modificar algunas clases para devolver status code 4XX cuando customerId no existe.
+
+En `src/java/com/jmunoz/playground/sec03`, en los paquetes indicados modificamos las clases:

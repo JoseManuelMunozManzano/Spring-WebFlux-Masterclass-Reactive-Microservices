@@ -123,3 +123,30 @@ Esta es la configuración del proyecto:
 - Ejecutar `docker-compose up`.
 - Monitorizar la consola. Asegurar que tenemos 10 millones de customers insertados.
   - Esperar al mensaje `database system is ready to accept connections`.
+
+## Reactive CRUD APIs with WebFlux
+
+[README.md](./01-webflux-playground/README.md#reactive-crud-apis-with-webflux)
+
+En esta sección vemos como exponer REST APIs con Spring WebFlux, en concreto los relacionados a Customer.
+
+![alt Reactive Controller](./images/04-ReactiveController.png)
+
+En secciones anteriores ya se crearon las clases de Entity y de Repository, así que podemos usarlas y, en esta sección, nos enfocamos en las clases service y controller.
+
+Es decir, solo nos centraremos en los CRUD APIs, no vamos a gestionar excepciones ni validaciones de entrada. Se verán en secciones posteriores.
+
+Ver proyecto `01-webflux-playground`, paquete `sec03`.
+
+- `controller`
+  - `CustomerController`
+- `dto`
+  - `CustomerDto`: Es un record.
+- `entity`
+  - `Customer`: Copiado de `sec02/entity`.
+- `mapper`
+  - `EntityDtoMapper`: Es sobre todo, una clase utility para convertir de entity a dto y al revés.
+- `repository`
+  - `CustomerRepository`: Copiado de `sec02/repository`.
+- `service`
+  - `CustomerService`
