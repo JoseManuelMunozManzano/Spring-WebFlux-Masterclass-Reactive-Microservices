@@ -600,7 +600,7 @@ En `src/java/com/jmunoz/playground/sec03`, en los paquetes indicados creamos las
 
 En esta clase exponemos las APIs CRUD via un controller.
 
-En `src/java/com/jmunoz/playground/sec03`, en los paquetes indicados creamos las clases:
+En `src/java/com/jmunoz/playground/sec03`, en los paquetes indicados creamos la clase:
 
 - `controller`
   - `CustomerController`
@@ -686,3 +686,172 @@ Ver documentación: `https://docs.spring.io/spring-framework/reference/web/webfl
 Vamos a modificar algunas clases para devolver status code 4XX cuando customerId no existe.
 
 En `src/java/com/jmunoz/playground/sec03`, en los paquetes indicados modificamos las clases:
+
+- `controller`
+  - `CustomerController`: Se modifican los métodos `getCustomer(id)` y `updateCustomer(...)` y se identifica un problema en `deleteCustomer(id)`, porque se encuentre o no el customer, se emite Mono<Void>, que es una señal empty, así que, si seguimos los caminos normales, siempre vamos a devolver un 4XX.
+
+El problema indicado al eliminar un customer se arregla en la siguiente clase.
+
+## @Modifying Query
+
+Vamos a corregir el problema del método `deleteCustomer()` añadiendo un query method.
+
+Spring soporta la anotación query `@Modifying`, que sirve para poder pedirle a Spring que devuelva el número de filas afectadas o un booleano (true si hay filas afectadas y false en caso contrario).
+
+Esto hace que, en vez de devolver void, podamos devolver un boolean o un integer, sabiendo así si se ha eliminado un customer.
+
+En `src/java/com/jmunoz/playground/sec03`, en los paquetes indicados modificamos las clases:
+
+- `repository`
+  - `CustomerRepository`: Creamos un query method personalizado con la anotación `@Modifying` que devuelva un booleano true si se ha realizado el borrado de un customer.
+- `service`
+  - `CustomerService`: Para eliminar un customer, usaremos nuestro nuevo query method, que devuelve `Mono<Boolean>`.
+- `controller`
+  - `CustomerController`: Corregimos el método de eliminado, ya que el service devuelve un `Mono<Boolean>`.
+
+Otra forma de solucionar este problema hubiera sido, al igual que en `customerService.updateCustomer()`, buscar el id y si no lo encuentra, devolver NotFound.
+
+## Paginated Results
+
+Vamos a añadir un nuevo requerimiento.
+
+Como parte del endpoint GET /customers, devolvemos un Flux<Customer>. Como tenemos 10 customers, todo va bien pero, ¿que pasaría si tuviéramos millones de customers en nuestra aplicación de producción?
+
+Devolveríamos todos los customers en streaming. Si queremos esto, perfecto, ya lo tenemos, pero no es lo normal.
+
+Lo normal es proveer resultados paginados, y lo indicamos como un nuevo endpoint que vamos a exponer.
+
+![alt Paginated Results Endpoint](./images/14-PaginatedResultsEndpoint.png)
+
+En `src/java/com/jmunoz/playground/sec03`, en los paquetes indicados modificamos las clases:
+
+- `repository`
+  - `CustomerRepository`: Creamos el método `findBy(Pageable pageable)`.
+- `service`
+  - `CustomerService`: Creamos el método `getAllCustomers(Integer page, Integer size)`.
+- `controller`
+  - `CustomerController`: Creamos el método `allCustomers(@RequestParam Integer page, @RequestParam Integer size)`
+
+Ver `https://www.vinsguru.com/r2dbc-pagination/` para ver como devolver el número total de customers junto con ese Page results.
+
+```java
+@Service
+public class ProductService {
+
+    @Autowired
+    private ProductRepository repository;
+
+    public Mono<Page<Product>> getProducts(PageRequest pageRequest){
+        return this.repository.findAllBy(pageRequest)
+                        .collectList()
+                        .zipWith(this.repository.count())
+                        .map(t -> new PageImpl<>(t.getT1(), pageRequest, t.getT2()));
+    }
+
+}
+```
+
+## CRUD APIs Demo
+
+Vamos a hacer de nuevo pruebas, ejecutando nuestra app y usando Postman.
+
+Abrimos Postman e importamos el archivo incluido en la carpeta `postman/sec03`.
+
+Ahora ya podemos probar resultados paginados e ids no existentes que nos devuelven errores 404.
+
+## WebTestClient - Introduction
+
+En las próximas clases vamos a ver como hacer test a las APIs que hemos expuesto vía nuestro controller.
+
+Para eso vamos a usar algo llamado `WebTestClient`.
+
+- Ya hemos usado WebClient
+  - Para enviar peticiones HTTP no bloqueantes.
+- WebTestClient
+  - Para escribir test unitarios/**integración**.
+
+Particularmente, como parte de este curso estamos interesados en escribir tests de integración.
+
+WebTestClient es muy fácil de usar:
+
+- client.get()
+  - post()
+  - put()
+  - delete()
+- uri("/path")
+- exchange() -> envía la request y obtiene el resultado
+  - ¡Es bloqueante! ¡Es un test!
+
+Primero indicaremos el verbo del endpoint, luego el path al que queremos enviar la petición y, por último se indica exchange().
+
+Para un verbo POST, hay que indicar la data que se envía como parte del body.
+
+Ejemplos:
+
+```java
+this.client.get()
+    .uri("/path")
+    .exchange();
+
+this.client.post()
+    .uri("/path")
+    .bodyValue(object)
+    .exchange();
+```
+
+- Tras exchange(), podemos hacer las aserciones
+  - status / header / response content
+
+Podemos hacer chaining.
+
+Ejemplo:
+
+```java
+this.client.get()
+    .uri("/customers/1")
+    .exchange()
+    .expectStatus().is2xxSuccessful()
+    .expectHeader().contentType(MediaType.APPLICATION_JSON)
+    .expectBody(CustomerDto.class)
+    .value(dto -> ...);
+```
+
+- Incluso podemos usar `jsonPath`.
+  - Muy útil cuando el contenido de la respuesta puede ser muy grande, con estructuras de datos anidadas muy complejas y no queremos validar todo el contenido, sino movernos a un path específico del JSON y validar solo es parte.
+  - Ver `https://github.com/json-path/JsonPath`.
+
+Ejemplo:
+
+```java
+this.client.get()
+    .uri("/customers")
+    .exchange()
+    .expectStatus().is2xxSuccessful()
+    .expectBody()
+    .jsonPath("$.length()").isEqualTo(10)
+    .jsonPath("$[0].name").isEqualTo("sam")
+    .jsonPath("$[1].name").isEqualTo("mike")
+```
+
+## Integration Testing
+
+Vamos a escribir tests de integración.
+
+En `src/test/java/com/jmunoz/playground.tests.sec03` creamos la clase:
+
+- `CustomerServiceTest`
+  - Se hacen tests de integración.
+
+Ejecutar los tests.
+
+## POST / PUT - Body Publisher vs Body Value
+
+Vamos a ver la diferencia entre `body()` y `bodyValue()`.
+
+![alt Body vs BodyValue](./images/15-BodyvsBodyValue.png)
+
+Usaremos `bodyValue()` cuando no tengamos un tipo publisher como Mono o Flux en memoria, sino, por ejemplo, un dto.
+
+Usaremos `body()` para tipos de publisher Mono o Flux. Tenemos que indicar el tipo de lo que el publisher nos va a dar.
+
+En test, usando `WebTestClient` casi siempre usaremos `bodyValue()`.

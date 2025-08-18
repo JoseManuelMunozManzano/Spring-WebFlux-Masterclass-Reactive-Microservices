@@ -150,3 +150,8 @@ Ver proyecto `01-webflux-playground`, paquete `sec03`.
   - `CustomerRepository`: Copiado de `sec02/repository`.
 - `service`
   - `CustomerService`
+
+En `src/test/java/com/jmunoz/playground.tests.sec03` creamos la clase:
+
+- `CustomerServiceTest`
+  - Se hacen tests de integración.
