@@ -154,4 +154,43 @@ Ver proyecto `01-webflux-playground`, paquete `sec03`.
 En `src/test/java/com/jmunoz/playground.tests.sec03` creamos la clase:
 
 - `CustomerServiceTest`
-  - Se hacen tests de integración.
+  - Se hacen tests de integración. 
+
+## Input Validation / Error Handling
+
+[README.md](./01-webflux-playground/README.md#input-validation--error-handling)
+
+En esta sección vamos a ver validaciones de entrada y gestión de errores.
+
+Dada la aplicación realizada en el package `sec03` vamos a añadirle algunos requerimientos nuevos:
+
+- CustomerDto debe venir informado name y email, este último con un formato válido.
+- En vez de ResponseEntity, vamos a usar ControllerAdvice para manejar cualquier problema que queramos comunicarle al llamador.
+
+Ver proyecto `01-webflux-playground`, paquete `sec04`. Los fuentes están copiados de `sec03` salvo los que se indiquen.
+
+- `controller`
+    - `CustomerController`: Emitimos señal de error en vez de ResponseEntity si ocurre algún problema.
+- `dto`
+    - `CustomerDto`
+- `entity`
+    - `Customer`
+- `mapper`
+    - `EntityDtoMapper`
+- `repository`
+    - `CustomerRepository`
+- `service`
+    - `CustomerService`
+- `advice`: Nuevo package
+    - `ApplicationExceptionHandler`: En caso de cualquier señal de error, se dispara este método, basado en la clase de excepción. 
+- `exceptions`: Nuevo package
+    - `CustomerNotFoundException`
+    - `InvalidInputException`
+    - `ApplicationExceptions` :Actúa como un Exception Factory.
+- `validator`: Nuevo package
+    - `RequestValidator`: Tendremos aquí utility methods.
+
+En `src/test/java/com/jmunoz/playground.tests.sec04` creamos la clase:
+
+- `CustomerServiceTest`
+    - Se hacen tests de integración. Los happy path siguen igual y se da la respuesta de los objetos Problem Detail en caso de problemas.

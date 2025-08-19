@@ -855,3 +855,121 @@ Usaremos `bodyValue()` cuando no tengamos un tipo publisher como Mono o Flux en 
 Usaremos `body()` para tipos de publisher Mono o Flux. Tenemos que indicar el tipo de lo que el publisher nos va a dar.
 
 En test, usando `WebTestClient` casi siempre usaremos `bodyValue()`.
+
+# Input Validation / Error Handling
+
+## Problem Detail
+
+En esta sección vamos a ver validaciones de entrada y gestión de errores.
+
+Dada la aplicación realizada en el package `sec03` vamos a añadirle algunos requerimientos nuevos en `sec04`:
+
+- CustomerDto debe venir informado name y email, este último con un formato válido.
+- En vez de ResponseEntity, vamos a usar ControllerAdvice para manejar cualquier problema que queramos comunicarle al llamador.
+
+Hemos dicho que Spring Framework se subscribe al tipo publisher, así que cuando emitimos una señal de error via el publisher, Spring Framework nos lleva automáticamente el ControllerAdvice y podemos devolver una respuesta de error apropiada.
+
+En nuestra app, hasta ahora, cuando el customerId no se encuentra, sencillamente enviamos BadRequest.
+
+Imaginemos aplicaciones grandes como GCP, AWS, Shopify... que exponen sus servicios via API y lo usan muchísimos desarrolladores.
+
+No pueden sencillamente devolver BadRequest, tienen que indicar detalles de por qué la petición es errónea, como corregirla... al llamador.
+
+Vamos a hablar de algo llamado `Problem Detail`:
+
+- Es un formato estandarizado para comunicar los detalles de los errores al llamador.
+  - Está basado en RFC7807 / RFC9457
+  - Provee una estructura común para respuesta de errores.
+  - El formato de respuesta es legible para la máquina como para humanos.
+
+El standard de Problem Detail sugiere que la respuesta de error tenga estos campos:
+
+![alt Problem Detail Fields](./images/16-ProblemDetailFields.png)
+
+Ejemplos:
+
+![alt Problem Detail Examples](./images/17-ProblemDetailExamples.png)
+
+## What About Bean Validation?
+
+Spring WebFlux soporta Bean Validation: `https://www.vinsguru.com/spring-webflux-validation/`. 
+
+Pero no la vamos a usar en este curso.
+
+Vamos a realizar nuestras propias validaciones sin usar esta dependencia porque así podemos aprender varias cosas.
+
+## Project Setup
+
+En `src/java/com/jmunoz/playground/sec04` creamos los paquetes y clases siguientes, copiados de `sec03` salvo los que se indiquen:
+
+- `controller`
+  - `CustomerController`
+- `dto`
+  - `CustomerDto`
+- `entity`
+    - `Customer`
+- `mapper`
+  - `EntityDtoMapper`
+- `repository`
+  - `CustomerRepository`
+- `service`
+  - `CustomerService`
+- `advice`: Nuevo package
+- `exceptions`: Nuevo package
+- `validator`: Nuevo package
+
+## Application Exceptions
+
+Vamos a trabajar con clases de excepciones. Estos son los problemas que vamos a comunicar a nuestro llamador.
+
+- Customer Not Found
+- Invalid Input
+  - name is required
+  - valid email is required
+
+En `src/java/com/jmunoz/playground/sec04` creamos clases en el siguiente paquete:
+
+- `exceptions`
+  - `CustomerNotFoundException`
+  - `InvalidInputException`
+  - `ApplicationExceptions`: Actúa como un Exception Factory.
+
+## Request Validator
+
+En `src/java/com/jmunoz/playground/sec04` creamos clases en el siguiente paquete:
+
+- `validator`
+  - `RequestValidator`: Tendremos aquí utility methods.
+
+## Validation - Emitting Error Signal
+
+En `src/java/com/jmunoz/playground/sec04` modificamos las siguientes clases del siguiente paquete:
+
+- `controller`
+    - `CustomerController`: Emitimos señal de error en vez de ResponseEntity si ocurre algún problema.
+
+## @ControllerAdvice
+
+En `src/java/com/jmunoz/playground/sec04` creamos clases en el siguiente paquete:
+
+- `advice`
+  - `ApplicationExceptionHandler`: En caso de cualquier señal de error, se dispara este método, basado en la clase de excepción.
+
+## Demo via Postman
+
+Modificamos `application.properties` para cambiar la property `sec=sec04` y ejecutamos nuestra app `WebfluxPlaygroundApplication`.
+
+Abrimos Postman e importamos el archivo incluido en la carpeta `postman/sec04`.
+
+Ahora ya podemos probar validaciones y excepciones.
+
+## Integration Testing
+
+Vamos a escribir tests de integración.
+
+En `src/test/java/com/jmunoz/playground.tests.sec04` creamos la clase:
+
+- `CustomerServiceTest`
+    - Se hacen tests de integración. Los happy path siguen igual y se da la respuesta de los objetos Problem Detail en caso de problemas.
+
+Ejecutar los tests.
