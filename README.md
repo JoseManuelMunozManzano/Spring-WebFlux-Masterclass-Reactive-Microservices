@@ -194,3 +194,42 @@ En `src/test/java/com/jmunoz/playground.tests.sec04` creamos la clase:
 
 - `CustomerServiceTest`
     - Se hacen tests de integración. Los happy path siguen igual y se da la respuesta de los objetos Problem Detail en caso de problemas.
+
+## WebFilter
+
+[README.md](./01-webflux-playground/README.md#webfilter)
+
+WebFilter es un componente intermediario entre el servidor y el controller, tiene la habilidad de manipular peticiones entrantes y respuestas salientes.
+
+Ver proyecto `01-webflux-playground`, paquete `sec05`. Los fuentes están copiados de `sec04` salvo los que se indiquen.
+
+- `controller`
+    - `CustomerController`: Accedemos al atributo establecido en el WebFilter.
+- `dto`
+    - `CustomerDto`
+- `entity`
+    - `Customer`
+- `mapper`
+    - `EntityDtoMapper`
+- `repository`
+    - `CustomerRepository`
+- `service`
+    - `CustomerService`
+- `advice`
+    - `ApplicationExceptionHandler`
+- `exceptions`
+    - `CustomerNotFoundException`
+    - `InvalidInputException`
+    - `ApplicationExceptions`
+- `validator`
+    - `RequestValidator`
+- `filter`: Nuevo package
+    - `Category`: Es un enum con las categorías de llamadores permitidos.
+    - `AuthenticationWebFilter`: Pasamos un atributo al siguiente WebFilter.
+    - `AuthorizationWebFilter`: Trabajamos con el atributo pasado.
+    - `FilterErrorHandler`: Solo si realmente necesitamos añadir `ProblemDetail` como parte de lo que devuelve nuestro `WebFilter`.
+
+En `src/test/java/com/jmunoz/playground.tests.sec05` creamos la clase:
+
+- `CustomerServiceTest`
+    - Se hacen tests de integración de los WebFilter. 

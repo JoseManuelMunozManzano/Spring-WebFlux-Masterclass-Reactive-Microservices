@@ -973,3 +973,206 @@ En `src/test/java/com/jmunoz/playground.tests.sec04` creamos la clase:
     - Se hacen tests de integración. Los happy path siguen igual y se da la respuesta de los objetos Problem Detail en caso de problemas.
 
 Ejecutar los tests.
+
+# WebFilter
+
+## Introduction
+
+WebFilter es un componente intermediario entre el servidor y el controller, tiene la habilidad de manipular peticiones entrantes y respuestas salientes.
+
+Particularmente, es muy útil para manejar preocupaciones transversales como autenticación, autorización, logging, monitoreo, limitación de velocidad, etc.
+
+Si añadimos un WebFilter, este se sitúa antes del controller.
+
+![alt WebFilter](./images/18-WebFilter.png)
+
+Es decir, cualquier petición que enviemos a nuestra aplicación, en vez de ir directamente al controller, ahora irá primero al WebFilter y luego al controller.
+
+¿Cuál es el caso de uso? Imaginemos que tenemos un nuevo requerimiento por el que, cualquier petición a nuestra aplicación, debe tener esta cabecera concreta:
+
+```java
+@GetMapping
+public Mono<ResponseEntity<List<CustomerDto>>> allCustomers(@RequestHeader(value = "auth-token", required = false) String token) {
+    // validation
+    if (Objects.isNull(token)) {
+        return Mono.just(ResponseEntity.status(HttpStatus.UNAUTHORIZED).build());
+    }
+    return this.customerService.getAllCustomers()
+            .collectList()
+            .map(ResponseEntity::ok);
+}
+```
+
+En este controller se ha añadido la validación de token, pero aquí queda realmente feo. Imaginemos que tenemos 100 endpoints, tendríamos que repetir este código 100 veces.
+
+Aquí es donde WebFilter es muy útil. Podemos hacer validaciones comunes antes de que la petición alcance al controller.
+
+En WebFilter:
+
+- No hacemos validaciones del body (si viene un mail con formato correcto...)
+  - Esto es porque entre el WebFilter y el controller es cuando se deserializa el body de la petición.
+  - Si se hiciese todo en un WebFilter, ¿para qué queremos clases de controller y de service? 
+- Podemos acceder a
+  - path
+  - header
+  - parameters
+  - cookies
+  - etc.
+
+Recordar, solo para problemas transversales, es decir, validaciones muy genéricas irrespectivamente de la API que estamos invocando.
+
+En `src/java/com/jmunoz/playground/sec05` creamos los paquetes y clases siguientes, copiados de `sec04` salvo los que se indiquen:
+
+- `controller`
+    - `CustomerController`
+- `dto`
+    - `CustomerDto`
+- `entity`
+    - `Customer`
+- `mapper`
+    - `EntityDtoMapper`
+- `repository`
+    - `CustomerRepository`
+- `service`
+    - `CustomerService`
+- `advice`
+    - `ApplicationExceptionHandler`
+- `exceptions`
+    - `CustomerNotFoundException`
+    - `InvalidInputException`
+    - `ApplicationExceptions`
+- `validator`
+    - `RequestValidator`
+- `filter`: Nuevo package
+
+## WebFilter Chain - How It Works
+
+En una aplicación se pueden encadenar varias clases WebFilter para hacer varias validaciones antes de que la petición pase al controller.
+
+![alt WebFilter Chain](./images/19-WebFilterChain.png)
+
+El primer WebFilter recibe la petición y hará algún tipo de control (no siempre será una validación). Una vez ha terminado, la petición irá al siguiente WebFilter de la cadena, que hará su control y, si todo va bien, pasará la petición al siguiente WebFilter de la cadena... y así hasta que en el último WebFilter, si todo va bien, pase la petición al controller.
+
+Para pasar de un WebFilter al siguiente de su cadena, hay que ejecutar `return chain.filter(exchange);`.
+
+![alt WebFilter Chaining Example](./images/20-WebFilterChainingExample.png)
+
+¿Cómo se establece el orden en la cadena de WebFilter? Se usa la anotación `@Order(1)`, `@Order(2)`..., a nivel de clase, en la imagen iría debajo de `@Service`.
+
+Si algún WebFilter considera que debe rechazar la petición, esta no llega al siguiente WebFilter ni al controller.
+
+## WebFilter - Authentication/Authorization Requirement!
+
+Tenemos un nuevo requerimiento para implementar `autenticación` y `autorización`.
+
+**Autenticación**
+
+- Tenemos dos categorías de llamadores.
+  - STANDARD
+  - PRIME
+- Se espera que todos los llamadores incluyan en el header un token de seguridad como parte de la petición.
+  - "auth-token"
+- El valor debe ser:
+  - "secret123" => STANDARD
+  - "secret456" => PRIME
+
+Si no se cumple alguno de estos requerimientos de autenticación, rechazar la petición con código de estado 401.
+
+**Autorización**
+
+- Tenemos dos categorías de llamadores.
+  - STANDARD
+  - PRIME
+- A los usuarios PRIME se les permite cualquier tipo de petición.
+- A los usuarios STANDARD se les permite solo peticiones GET.
+
+Si no se cumple alguno de estos requerimientos de autorización, rechazar la petición con código de estado 403.
+
+## WebFilter Implementation
+
+Trabajamos en el WebFilter de autenticación.
+
+En `src/java/com/jmunoz/playground/sec05` creamos fuentes en el siguiente paquete:
+
+- `filter`
+  - `Category`: Es un enum con las categorías de llamadores permitidos.
+  - `AuthenticationWebFilter`: Pasamos un atributo (ver siguiente clase) al siguiente WebFilter.
+
+## Attributes via WebFilter
+
+Trabajamos en el WebFilter de autorización.
+
+![alt WebFilters Attributes](./images/21-WebFiltersAttributes.png)
+
+Estos atributos son un mapa (pares de clave-valor). Un WebFilter puede proveer cierta información sobre la petición a otro WebFilter en la cadena usando este mapa.
+
+Estos atributos pueden llegar al controller perfectamente, en caso necesario.
+
+En `src/java/com/jmunoz/playground/sec05` creamos fuentes en el siguiente paquete:
+
+- `filter`
+  - `AuthorizationWebFilter`: Trabajamos con el atributo pasado desde `AuthenticationWebFilter`.
+
+## WebFilter Demo
+
+Vamos a probar nuestras APIs usando Postman.
+
+Modificamos `application.properties` para cambiar la property `sec=sec05` y ejecutamos nuestra app `WebfluxPlaygroundApplication`.
+
+Abrimos Postman e importamos el archivo incluido en la carpeta `postman/sec05`.
+
+En los headers de las peticiones se ha añadido la property `auth-token`. Si la petición no tiene esta property en su header, obtendremos un error `401 Unauthorized`.
+
+Los valores de esta property solo pueden ser `secret123` para un usuario `STANDARD` o `secret456` para un usuario `PRIME`. Con cualquier otro valor, volveremos a obtener el error `401 Unauthorized`.
+
+Para cualquier petición distinta de `GET`, el valor de la header property `auth-token` solo puede ser `secret456`, un usuario `PRIME`. En caso contrario obtendremos un error `403 Forbidden`.
+
+## Accessing Attributes via @Controller
+
+Vamos a ver como podemos acceder a los atributos añadidos a la petición en los WebFilter en el controller.
+
+En los parámetros del método tenemos que indicar la anotación y el atributo al que queremos acceder, seguido del tipo y nombre del parámetro: `@RequestAttribute("category") Category category`
+
+En `src/java/com/jmunoz/playground/sec05` modificamos la siguiente clase del siguiente paquete:
+
+- `controller`
+    - `CustomerController`: Accedemos al atributo establecido en el WebFilter.
+
+Se puede probar abriendo Postman y ejecutando el endpoint `customers - get all`. Ir a la terminal donde se ejecuta el programa y se verá escrita la categoría en consola.
+
+## Problem Detail - WebFilter Workaround
+
+Como parte de nuestros WebFilter, hacemos algunas validaciones, establecemos el código HTTP Response apropiado y lo devolvemos.
+
+Parece que todo funciona perfectamente. Pero, ¿cómo enviamos `ProblemDetail` tal y como hicimos en la sección anterior?
+
+Actualmente, no se puede enviar una señal de error ni hacer un `throw` de una excepción en nuestros WebFilter y que lo recoja nuestro `Controller Advice`. Estaría genial tener centralizado solo un gestor de excepciones `ApplicationExceptionHandler` ya que es un buen patrón, pero, de nuevo, Spring WebFlux todavía no maneja esto.
+
+**Puede cambiar en un futuro, por lo que conviene revisarlo.**
+
+Entonces, necesitamos un gestor de excepciones global, y hay varias soluciones, pero ninguna es realmente tan elegante como la que ya tenemos.
+
+Por tanto, si realmente, **REALMENTE**, necesitamos enviar `ProblemDetail` como parte de nuestro WebFilter, esta es la solución.
+
+En `src/java/com/jmunoz/playground/sec05` creamos la siguiente clase del siguiente paquete:
+
+- `filter`
+    - `FilterErrorHandler`: Solo si realmente necesitamos añadir `ProblemDetail` como parte de lo que devuelve nuestro `WebFilter`.
+
+Para poder probar esto, en `src/java/com/jmunoz/playground/sec05` modificamos la siguiente clase del siguiente paquete:
+
+- `filter`
+    - `AuthenticationWebFilter`: Modificado para ver si funciona el `ProblemDetail` añadido (se deja comentado)
+
+Se puede probar ejecutando la aplicación, abriendo Postman y ejecutando el endpoint `customers - get-all ProblemDetail` que no tiene en el header la property `auth-token`.
+
+## Integration Tests
+
+Vamos a escribir tests de integración.
+
+En `src/test/java/com/jmunoz/playground.tests.sec05` creamos la clase:
+
+- `CustomerServiceTest`
+    - Se hacen tests de integración de los WebFilter.
+
+Ejecutar los tests.
