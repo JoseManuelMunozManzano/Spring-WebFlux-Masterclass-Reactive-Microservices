@@ -1176,3 +1176,220 @@ En `src/test/java/com/jmunoz/playground.tests.sec05` creamos la clase:
     - Se hacen tests de integración de los WebFilter.
 
 Ejecutar los tests.
+
+# Functional Endpoints
+
+## Introduction
+
+Tradicionalmente, exponemos APIs via controllers anotados como este, que funcionan perfectamente:
+
+![alt Controller Annotation](./images/22-ControllerAnnotation.png)
+
+En este caso, anotado con `@GetMapping` y `@PathVariable` que, de alguna manera, Spring invocará cuando hagamos una petición GET. Luego, tomamos el control y llamaremos a la capa de servicio.
+
+Además de estos controller anotados, WebFlux provee una solución alternativa para exponer APIs llamada `functional endpoints`.
+
+![alt Functional Endpoints](./images/23-FunctionalEndpoints.png)
+
+Consiste en exponer toda la lógica de routing en un estilo de programación funcional.
+
+Si el path es `/customers` entonces ejecuta `getAllCustomers`... y también proveemos el gestor de errores en `onError(...)`.
+
+Lo bueno es que, si queremos, podemos exponer APIs programáticamente.
+
+Por tanto, cuando enrutamos, no vamos directamente a la capa de servicio, porque en la petición tenemos un objeto `server request`, de bajo nivel, y tendremos que extraer la información de la petición en esa capa amarilla de la imagen, que podríamos llamar `Request Handler`. Después, ya podemos pasar a la capa de servicio.
+
+La ventaja de estos endpoints funcionales consiste en la flexibilidad que nos da.
+
+Todo esto es opcional, podemos seguir usando nuestros controladores anotados como siempre.
+
+## Router Configuration and Router Handler
+
+Vamos a configurar el proyecto para que funcione con endpoints funcionales.
+
+En `src/java/com/jmunoz/playground/sec06` creamos los paquetes y clases siguientes, copiados de `sec04` (si, la 4) salvo los que se indiquen:
+
+- `dto`
+    - `CustomerDto`
+- `entity`
+    - `Customer`
+- `mapper`
+    - `EntityDtoMapper`
+- `repository`
+    - `CustomerRepository`
+- `service`
+    - `CustomerService`
+- `exceptions`
+    - `CustomerNotFoundException`
+    - `InvalidInputException`
+    - `ApplicationExceptions`
+- `validator`
+    - `RequestValidator`
+- `config`: Nuevo package
+  - `RouterConfiguration`: Aquí exponemos todas nuestras funciones de router como un bean.
+  - `CustomerRequestHandler`: Aquí extraemos los datos de la petición necesarios.
+
+## Input Validation / Error Handler
+
+Cuando los handler functions emiten una señal de error, tenemos que gestionarlo. Es algo similar al Controller Advice de la sección anterior pero para router functions.
+
+En `src/java/com/jmunoz/playground/sec06` modificamos un fuente y creamos otro en el siguiente paquete:
+
+- `config`
+    - `RouterConfiguration`: Gestionamos las excepciones.
+    - `ApplicationExceptionHanler`: Creamos Problem Detail y devolvemos Mono<ServerResponse> cuando hay excepción.
+
+## Paginated Results
+
+Añadimos el endpoint funcional para obtener los customers de manera paginada.
+
+En `src/java/com/jmunoz/playground/sec06` modificamos fuentes en el siguiente paquete:
+
+- `config`
+    - `RouterConfiguration`: Añadimos la llamada al handler function para gestionar customers paginados.
+    - `CustomerRequestHandler`: Gestionamos los datos de la petición y llamamos al servicio necesario para obtener customers paginados.
+
+## Order of the routes
+
+Tenemos que tener cuidado cuando trabajemos con RouterFunctions.
+
+Cuando obtenemos la petición GET, basado en el método de la petición HTTP y el patrón del path, RouterFunctions intentará asignarlo a un Request Handler apropiado.
+
+Pero en este ejemplo, tendremos un error si queremos acceder a `/customers/paginated`:
+
+```java
+        return RouterFunctions.route()
+                .GET("/customers", this.customerRequestHandler::allCustomers)
+                .GET("/customers/{id}", this.customerRequestHandler::getCustomers)
+                .GET("/customers/paginated", this.customerRequestHandler::paginatedCustomers)
+                .build();
+```
+
+El problema es que selecciona el endpoint `/customers/{id}` por ser un path variable.
+
+Para evitar esto, tenemos que tener cuidado con el orden en que indicamos los paths routes. El orden correcto sería este:
+
+```java
+        return RouterFunctions.route()
+                .GET("/customers", this.customerRequestHandler::allCustomers)
+                .GET("/customers/paginated", this.customerRequestHandler::paginatedCustomers)
+                .GET("/customers/{id}", this.customerRequestHandler::getCustomers)
+                .build();
+```
+
+## Demo via Postman
+
+Vamos a probar nuestras APIs usando Postman.
+
+Modificamos `application.properties` para cambiar la property `sec=sec06` y ejecutamos nuestra app `WebfluxPlaygroundApplication`.
+
+Abrimos Postman e importamos el archivo incluido en la carpeta `postman/sec06`.
+
+## Integration Tests
+
+Vamos a escribir tests de integración.
+
+En `src/test/java/com/jmunoz/playground.tests.sec06` creamos la clase:
+
+- `CustomerServiceTest`
+    - Se hacen tests de integración de los Functional Endpoints.
+
+Ejecutar los tests.
+
+## Multiple Router Functions
+
+En estas clases veremos detalles menores, pero importantes, que tenemos que tener en cuenta.
+
+En `src/java/com/jmunoz/playground/sec06` creamos el siguiente fuente de prácticas en el siguiente paquete:
+
+- `config`
+    - `RouterConfigurationPractices`: Creamos varios métodos RouterFunction para no tener tantos endpoints en un solo RouterFunctions, todos los métodos expuestos como beans.
+
+En esta clase tenemos varios endpoints, pero son pocos. En una aplicación real podríamos tener 50 o 100 endpoints.
+
+No es necesario crear un solo método RouterFunction y exponerlo todo, sino que podemos tener varios métodos RouterFunction si queremos.
+
+Ejecutamos nuestra app `WebfluxPlaygroundApplication` y probamos en Postman que todo sigue funcionando exáctamente igual.
+
+## Nested Router Functions
+
+Cuando tenemos varios endpoints, no tiene por qué ser necesario exponer varios beans.
+
+Podemos tener un router a un nivel alto que puede enrutar a las funciones router hijas, como un tipo de lógica de enrutamiento anidada basada en rutas.
+
+En `src/java/com/jmunoz/playground/sec06` modificamos el fuente de prácticas en el siguiente paquete:
+
+- `config`
+    - `RouterConfigurationPractices`: Los métodos no tienen por qué exponerse todos como beans, sino que hay un método padre que se expone como bean. 
+
+Escoger entre varias funciones router o funciones router anidadas es solo cuestión de como se quiere organizar todo.
+
+Ejecutamos nuestra app `WebfluxPlaygroundApplication` y probamos en Postman que todo sigue funcionando exáctamente igual.
+
+## What About WebFilters
+
+Si queremos trabajar con el enfoque de Router Functions, esta clase nos enseña a tener WebFilter.
+
+Los WebFilter, aunque se han añadido al final en la clase de ejemplo, es lo primero que se ejecuta.
+
+En `src/java/com/jmunoz/playground/sec06` modificamos el fuente de prácticas en el siguiente paquete:
+
+- `config`
+    - `RouterConfigurationPractices`: Añadimos WebFilter usando el método `filter()`.
+
+Ejecutamos nuestra app `WebfluxPlaygroundApplication` y probamos en Postman que todo sigue funcionando exáctamente igual.
+
+## Request Predicates
+
+En los métodos `GET`, `POST`, etc., hemos trabajado con la firma en la que indicamos un patrón y la correspondiente función handler.
+
+![alt Request Predicates](./images/24-RequestPredicates.png)
+
+La tercera firma indica que, da igual el path, se va a ejecutar esa función handler.
+
+Pero, donde apunta la flecha vemos que también podemos indicar una RequestPredicate y una correspondiente función handler.
+
+Sabemos que un `predicate` consiste en pasar un objeto y se devuelve true o false. Como parte de un `RequestPredicate` lo que hacemos es pasar la request, con lo que tenemos acceso a todo el request (path variable, query parameters, headers, cookies...) y tenemos que devolver true o false. Si es true se ejecuta la función handler indicada y si es false va al siguiente handler.
+
+La cuarta firma vemos que utiliza un patrón, un predicate y una función handler. Solo si el predicate devuelve true se ejecutará su función handler.
+
+Estos usos de predicate son muy útiles cuando solo un patrón no es suficiente, por ejemplo, para invocar el endpoint `GET All Customers` puede que existan propiedades en el header que tenemos que mirar usando el predicate, para ver si existen y, solo entonces, ejecutar ese función handler.
+
+`RequestPredicate` es una interface. Existe también una clase de utilidad `RequestPredicates` que sirve para poder crear un `RequestPredicate` rápidamente.
+
+En `src/java/com/jmunoz/playground/sec06` modificamos el fuente en el siguiente paquete:
+
+- `config`
+    - `RouterConfiguration`: Usamos `RequestPredicate` para enrutar paths a handler functions.
+
+Descomentar la parte de RequestPredicate para probar.
+
+Ejecutamos nuestra app `WebfluxPlaygroundApplication` y probamos en Postman `customers - get-by-id`, tanto con el id 5 como el 1 y el 10. Vemos que solo funcionará el id con valor 10.
+
+## Request Predicate - Calculator Assignment
+
+Vamos a realizar este ejercicio usando Request Predicate.
+
+![alt Request Predicate Assignment](./images/25-RequestPredicateAssignment.png)
+
+Lo de menos es la calculadora. Lo importante es jugar con Request Predicate.
+
+En `src/java/com/jmunoz/playground/sec06` creamos el fuente en el siguiente paquete:
+
+- `assignment`: Nuevo package
+  - `CalculatorAssignment`: Es un ejercicio para jugar con Request Predicate.
+
+Vamos a probar nuestras APIs usando Postman.
+
+Modificamos `application.properties` para cambiar la property `sec=sec06` y ejecutamos nuestra app `WebfluxPlaygroundApplication`.
+
+Abrimos Postman e importamos el archivo incluido en la carpeta `postman/sec06/assignment`.
+
+Vamos a escribir tests de integración.
+
+En `src/test/java/com/jmunoz/playground.tests.sec06` creamos la clase:
+
+- `CalculatorTest`
+    - Se hacen tests de integración de `CalculatorAssignment`.
+
+Ejecutar los tests.

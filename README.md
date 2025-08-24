@@ -167,7 +167,7 @@ Dada la aplicación realizada en el package `sec03` vamos a añadirle algunos re
 - CustomerDto debe venir informado name y email, este último con un formato válido.
 - En vez de ResponseEntity, vamos a usar ControllerAdvice para manejar cualquier problema que queramos comunicarle al llamador.
 
-Ver proyecto `01-webflux-playground`, paquete `sec04`. Los fuentes están copiados de `sec03` salvo los que se indiquen.
+Ver proyecto `01-webflux-playground`, paquete `sec04`. Los fuentes están copiados de `sec03`, salvo los que se indiquen.
 
 - `controller`
     - `CustomerController`: Emitimos señal de error en vez de ResponseEntity si ocurre algún problema.
@@ -201,7 +201,7 @@ En `src/test/java/com/jmunoz/playground.tests.sec04` creamos la clase:
 
 WebFilter es un componente intermediario entre el servidor y el controller, tiene la habilidad de manipular peticiones entrantes y respuestas salientes.
 
-Ver proyecto `01-webflux-playground`, paquete `sec05`. Los fuentes están copiados de `sec04` salvo los que se indiquen.
+Ver proyecto `01-webflux-playground`, paquete `sec05`. Los fuentes están copiados de `sec04`, salvo los que se indiquen.
 
 - `controller`
     - `CustomerController`: Accedemos al atributo establecido en el WebFilter.
@@ -232,4 +232,50 @@ Ver proyecto `01-webflux-playground`, paquete `sec05`. Los fuentes están copiad
 En `src/test/java/com/jmunoz/playground.tests.sec05` creamos la clase:
 
 - `CustomerServiceTest`
-    - Se hacen tests de integración de los WebFilter. 
+    - Se hacen tests de integración de los WebFilter.
+
+## Functional Endpoints
+
+[README.md](./01-webflux-playground/README.md#functional-endpoints)
+
+Tradicionalmente, exponemos APIs via controllers anotados como este, que funcionan perfectamente:
+
+![alt Controller Annotation](./images/05-ControllerAnnotation.png)
+
+En este caso, anotado con `@GetMapping` y `@PathVariable` que, de alguna manera, Spring invocará cuando hagamos una petición GET. Luego, tomamos el control y llamaremos a la capa de servicio.
+
+Además de estos controller anotados, WebFlux provee una solución alternativa para exponer APIs llamada `functional endpoints`, que es lo que vamos a ver en esta sección.
+
+![alt Functional Endpoints](./images/06-FunctionalEndpoints.png)
+
+Ver proyecto `01-webflux-playground`, paquete `sec06`. Los fuentes están copiados de `sec04`, salvo los que se indiquen.
+
+- `dto`
+    - `CustomerDto`
+- `entity`
+    - `Customer`
+- `mapper`
+    - `EntityDtoMapper`
+- `repository`
+    - `CustomerRepository`
+- `service`
+    - `CustomerService`
+- `exceptions`
+    - `CustomerNotFoundException`
+    - `InvalidInputException`
+    - `ApplicationExceptions`
+- `validator`
+    - `RequestValidator`
+- `config`: Nuevo package
+    - `RouterConfiguration`: Aquí exponemos todas nuestras funciones de router como un bean.
+    - `CustomerRequestHandler`: Aquí extraemos los datos de la petición necesarios.
+    - `ApplicationExceptionHanler`: Creamos Problem Detail y devolvemos Mono<ServerResponse> cuando hay excepción.
+- `assignment`: Nuevo package
+    - `CalculatorAssignment`: Es un ejercicio para jugar con Request Predicate.
+
+En `src/test/java/com/jmunoz/playground.tests.sec06` creamos la clase:
+
+- `CustomerServiceTest`
+    - Se hacen tests de integración de los Functional Endpoints.
+- `CalculatorTest`
+    - Se hacen tests de integración de `CalculatorAssignment`.
