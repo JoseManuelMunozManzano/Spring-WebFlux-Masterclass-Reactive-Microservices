@@ -1393,3 +1393,545 @@ En `src/test/java/com/jmunoz/playground.tests.sec06` creamos la clase:
     - Se hacen tests de integración de `CalculatorAssignment`.
 
 Ejecutar los tests.
+
+# WebClient
+
+## Introduction
+
+Aunque ya usamos WebClient en la sección 1, ahora vamos a discutirla en detalle.
+
+WebClient es sencillamente una plantilla REST Reactiva.
+
+- API fluida basada en Reactor para hacer peticiones HTTP.
+    - Envoltorio alrededor de reactor-netty
+- Recibe la respuesta de manera No bloqueante
+- Inmutable
+- Thread safe
+
+Esta imagen muestra un ejemplo de una app que hace dos llamadas usando WebClient.
+
+![alt WebClient Example](./images/26-WebClientExample.png)
+
+WebClient, una vez construido, es inmutable. Sin embargo, si tenemos que modificar cualquier configuración por defecto que hayamos hecho, podemos usar `oldClient.mutate()`, como se ve en esta imagen.
+
+![alt WebClient Mutate](./images/27-WebClientMutate.png)
+
+Con esto creamos un nuevo builder y podemos modificar las configuraciones que deseemos para crear un nuevo client.
+
+Así es como vamos a usar WebClient:
+
+![alt WebClient Use](./images/28-WebClientUse.png)
+
+Es muy parecido a `WebTestClient`, que ya hemos visto.
+
+Una vez ejecutado `retrieve()` obtenemos la respuesta, y, usando `bodyToMono(...)` proveemos el tipo, en la imagen `Product.class`, es decir, decodificamos la respuesta a ese tipo.
+
+Si esperáramos varios productos en streaming, podíamos haber indicado `bodyToFlux(...)`.
+
+Una vez tenemos `bodyToMono(...)` ya lo que indiquemos es básicamente un pipeline reactivo.
+
+En la imagen, en el método `post()` vemos `bodyToValue(...)`. Recordar que se usa `bodyToValue(...)` para enviar un objeto que tenemos en memoria.
+
+Para trabajar con `WebClient` vamos a necesitar una aplicación con la que interactuar. Esta será `external-services.jar`.
+
+Para ejecutarla, solo tenemos que acceder a una terminal y ejecutar: `java -jar external-service.jar`.
+
+Luego, acceder en el navegador al Swagger de este servicio: `http://localhost:7070/webjars/swagger-ui/index.html`. Vamos a usar `demo02`.
+
+![alt Demo02](./images/29-WebClientDemo02.png)
+
+## Project Setup
+
+En `src/test/java/com/jmunoz/playground.tests.sec07` creamos la clase:
+
+- `AbstractWebClient`
+  - Clase abstracta que será extendida por varias clases. Aquí tendremos métodos de utilidad.
+
+**IMPORTANTE:** No son tests. Son clases hechas para poder practicar WebClient.
+
+## Simple GET
+
+En `src/test/java/com/jmunoz/playground.tests.sec07` creamos la clase:
+
+- `Lec01MonoTest`
+  - Vamos a realizar una petición GET sencilla.
+  - Vamos a trabajar con el endpoint GET `/demo02/lec01/product/{id}`
+  - El id va de 1 a 100 y cada call le lleva 1 segundo responderlo.
+  - Método `simpleGet()`
+- `dto`: Nuevo package
+  - `Product`: Es un record.
+
+Para ejecutar las pruebas no olvidar primero ejecutar `external-services.jar`. Los resultados pueden verse tanto en la terminal donde ejecutamos `external-services.jar`, donde se ve la petición recibida y si se ha completado o ha dado error, como en la terminal donde ejecutamos los tests, donde vemos el resultado de la petición.
+
+## Non-blocking Concurrent Requests
+
+En esta clase vamos a probar como podemos enviar una petición concurrente no bloqueante usando WebClient.
+
+Esto ya lo vimos en el curso anterior: `https://github.com/JoseManuelMunozManzano/Mastering-Java-Reactive-Programming/tree/main/01-reactive-programming-playground#non-bloking-io-client`
+
+- WebClient es un wrapper alrededor de Reactor Netty.
+  - Usa 1 thread / CPU
+  - Es no bloqueante
+
+¡Solo 1 thread hace el trabajo!
+
+En `src/test/java/com/jmunoz/playground.tests.sec07` seguimos trabajando con la clase:
+
+- `Lec01MonoTest`
+  - Método `concurrentRequests()`
+
+Para ejecutar las pruebas no olvidar primero ejecutar `external-services.jar`. Los resultados pueden verse tanto en la terminal donde ejecutamos `external-services.jar`, donde se ve la petición recibida y si se ha completado o ha dado error, como en la terminal donde ejecutamos los tests, donde vemos el resultado de la petición.
+
+## How Event Loop Works
+
+Ver `https://github.com/JoseManuelMunozManzano/Mastering-Java-Reactive-Programming/tree/main/01-reactive-programming-playground#como-funciona-event-loop`.
+
+## URI Variables
+
+En nuestros ejemplos hemos construido la URI haciendo una concatenación de Strings, cosa lógica porque nuestra URI es muy sencilla.
+
+```java
+this.client.get()
+        .uri("/lec01/product/" + i)
+        .retrieve()
+        .bodyToMono(Product.class)
+```
+
+Pero en la vida real podemos tener URL mucho más largas, y la concatenación de Strings se verá muy fea.
+
+Para solucionar esto, tenemos sobrecarga de métodos disponibles:
+
+```java
+Uri uri
+
+String uri, Object... uriVariables
+
+String uri, Map<String, ?> uriVariables
+```
+
+Y el resultado sería este:
+
+```java
+// Usando variables
+this.client.get()
+        .uri("/lec01/product/{id}", i)
+        .retrieve()
+        .bodyToMono(Product.class)
+
+this.client.get()
+        .uri("/{lec}/product/{id}", "lec01", i)
+        .retrieve()
+        .bodyToMono(Product.class)
+
+// Variables con map
+var map = Map.of(
+        "lec", "lec01",
+        "id", 1
+);
+
+this.client.get()
+        .uri("/{lec}/product/{id}", map)
+        .retrieve()
+        .bodyToMono(Product.class)
+```
+
+En `src/test/java/com/jmunoz/playground.tests.sec07` seguimos trabajando con la clase:
+
+- `Lec01MonoTest`
+    - Modificamos el método `concurrentRequests()` para usar variables en la URI.
+
+Para ejecutar las pruebas no olvidar primero ejecutar `external-services.jar`. Los resultados pueden verse tanto en la terminal donde ejecutamos `external-services.jar`, donde se ve la petición recibida y si se ha completado o ha dado error, como en la terminal donde ejecutamos los tests, donde vemos el resultado de la petición.
+
+## Streaming GET
+
+Vamos a hacer pruebas con respuestas en stream.
+
+Para ejecutar las pruebas no olvidar primero ejecutar `external-services.jar`. Vamos a trabajar con el endpoint GET `/demo02/lec02/product/stream`.
+
+En `src/test/java/com/jmunoz/playground.tests.sec07` creamos la clase:
+
+- `Lec02FluxTest`
+    - Vamos a realizar una petición GET que devuelve una respuesta streaming.
+    - Vamos a trabajar con el endpoint `/demo02/lec02/product/stream`
+    - Este endpoint provee 10 productos como stream, con 500ms de delay entre cada uno de ellos. No es necesario pasar ningún id. 
+
+## POST - Body Publisher vs Body Value
+
+En esta clase vemos la diferencia entre usar bodyValue o body.
+
+- bodyValue - Lo usaremos si tenemos un objeto o un DTO en MEMORIA (esto es lo importante, que esté en memoria)
+- body - Lo usaremos si tenemos un tipo Publisher.
+
+Para ejecutar las pruebas no olvidar primero ejecutar `external-services.jar`. Vamos a trabajar con el endpoint POST `/demo02/lec03/product`.
+
+En `src/test/java/com/jmunoz/playground.tests.sec07` creamos la clase:
+
+- `Lec03PostTest`
+    - Vamos a trabajar con el endpoint `/demo02/lec03/product`
+    - Este endpoint acepta una petición POST para un producto y le lleva 1 segundo responder.
+
+## Default Headers Configuration/Override
+
+Vamos a ver como configurar el header, sobreescribirlo...
+
+Para ejecutar las pruebas no olvidar primero ejecutar `external-services.jar`. Vamos a trabajar con el endpoint GET `/demo02/lec04/product/{id}`.
+
+En `src/test/java/com/jmunoz/playground.tests.sec07` creamos la clase:
+
+- `Lec04HeaderTest`
+    - Vamos a trabajar con el endpoint `/demo02/lec04/product/{id}`
+    - Este endpoint espera un header con la propiedad `caller-id`, es decir, estaríamos indicando quién llama al servicio. Si no viene este header, no enviaremos la respuesta.
+
+## Remote Service - Error Handling
+
+Vamos a ver como decodificar las respuestas de error, para poder manejar los errores.
+
+Para ejecutar las pruebas no olvidar primero ejecutar `external-services.jar`. Vamos a trabajar con el endpoint GET `/demo02/lec05/calculator/{first}/{second}`.
+
+En `src/test/java/com/jmunoz/playground.tests.sec07` creamos la clase:
+
+- `Lec05ErrorResponseTest`
+    - Vamos a trabajar con el endpoint `/demo02/lec05/calculator/{first}/{second}`
+    - Hace la operación matemática y devuelve el resultado. Ambos parámetros deben ser mayores que cero. En el header mandamos `operación` y alguna de estas operaciones como valor `+, -, *, /`. En caso contrario la operación fallará con status 404 y devolverá un objeto ProblemDetail.
+- `dto`: Package
+    - `CalculatorResponse`: Es un record.
+
+## Retrieve vs exchange
+
+Hasta ahora hemos usado `retrieve()`.
+
+Usaremos `exchange()` si necesitamos acceder a las `response headers`, `cookies`, `status code`, etc., es decir a niveles de detalle de bajo nivel porque necesitemos más control. Notar en la imagen que obtenemos `clientResponse` que contiene todos esos valores de bajo nivel, y podemos hacer y devolver lo que queramos al pipeline reactivo.
+
+![alt Retrieve vs Exchange](./images/30-RetrieveVsExchange.png)
+
+En `src/test/java/com/jmunoz/playground.tests.sec07` seguimos usando la clase:
+
+- `Lec05ErrorResponseTest`
+    - Trabajamos con `exchange()`
+
+## Query Params
+
+Para ejecutar las pruebas no olvidar primero ejecutar `external-services.jar`. Vamos a trabajar con el endpoint GET `/demo02/lec06/calculator`.
+
+En `src/test/java/com/jmunoz/playground.tests.sec07` creamos la clase:
+
+- `Lec06QueryParamsTest`
+    - Vamos a trabajar con el endpoint `/demo02/lec06/calculator`
+    - Es lo mismo que hemos visto en `Lec05ErrorResponseTest` pero en vez de usar `Path Variables` y un header, usamos `Query Parameters`.
+
+## WebClient - Basic Auth
+
+Vamos a ver como configurar credenciales Basic Auth usando WebClient.
+
+Los desarrolladores suelen usar Basic Auth para autenticación de servicio a servicio.
+
+![alt Basic Auth](./images/31-BasicAuth.png)
+
+En este caso, enviamos credenciales desde `Order Service` a `Payment Service` para poder usar el servicio.
+
+Para este ejemplo, estas credenciales están codificadas en Base64.
+
+Para ejecutar las pruebas no olvidar primero ejecutar `external-services.jar`. Vamos a trabajar con el endpoint GET `/demo02/lec07/product/{id}`.
+
+En `src/test/java/com/jmunoz/playground.tests.sec07` creamos la clase:
+
+- `Lec07BasicAuthTest`
+    - Vamos a trabajar con el endpoint `/demo02/lec07/product/{id}`
+    - El valor de id puede ir de 1 a 100.
+    - Si no se envían las credenciales `username: java, password: secret` devuelve 401.
+
+## Bearer Auth
+
+Vamos a ver como enviar un bearer token en un WebClient.
+
+Esto es muy usado.
+
+Para ejecutar las pruebas no olvidar primero ejecutar `external-services.jar`. Vamos a trabajar con el endpoint GET `/demo02/lec08/product/{id}`.
+
+En `src/test/java/com/jmunoz/playground.tests.sec07` creamos la clase:
+
+- `Lec08BearerAuthTest`
+    - Vamos a trabajar con el endpoint `/demo02/lec08/product/{id}`
+    - El valor de id puede ir de 1 a 100.
+    - Si no se envía el bearer token `Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9` devuelve 401.
+
+## Exchange Filter Function
+
+Es muy similar a WebFilter, pero WebFilter funciona para una solicitud entrante.
+
+![alt Exchange Filter Function](./images/32-ExchangeFilterFunction.png)
+
+Similar a WebFlux, WebClient es responsable de gestionar la solicitud saliente, y tiene sus propios filtros, a los que se les llama Exchange Filter Function.
+
+Usando estos Exchange Filter Function, podemos manejar preocupaciones transversales similares pero relacionadas con las solicitudes salientes, como asegurar que el token se establece antes de enviar una solicitud al servicio remoto, logging, monitoreo, manejo de errores, etc. 
+
+Para ejecutar las pruebas no olvidar primero ejecutar `external-services.jar`. Vamos a trabajar con el endpoint GET `/demo02/lec09/product/{id}`.
+
+En `src/test/java/com/jmunoz/playground.tests.sec07` creamos la clase:
+
+- `Lec089ExchangeFilterTest`
+    - Vamos a trabajar con el endpoint `/demo02/lec09/product/{id}`
+    - El valor de id puede ir de 1 a 100.
+    - Espera que se envíe un nuevo bearer token `Authorization: Bearer [generate new token]` cada vez.
+    - Para enviar un nuevo token se usa `UUID.randomUUID().toString().replace("-", "")`.
+    - También creamos otro Filter Function para añadir funcionalidad de logging.
+
+Como tenemos que generar un token como parte de cada solicitud, la configuración de default headers no nos va a funcionar, ya que el token es uno concreto y además, en esta instrucción:
+
+`private final WebClient client = createWebClient(b -> b.defaultHeaders(h -> h.setBearerAuth("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9")));`
+
+Estamos creando un bean, el que genera `createWebClient()`, y puede estar inyectándose ese WebClient es muchas clases de servicio.
+
+Aquí es donde funcionan muy bien las Exchange Filter Function.
+
+Exchange Filter Function es una interfaz funcional de este tipo: `Mono<ClientResponse> filter(ClientRequest request, ExchangeFunction next);`.
+
+Vemos que tenemos la solicitud del cliente antes de que se envíe al servicio remoto, y podemos modificarla.
+
+Usando la función `next` daremos la solicitud a la siguiente Exchange Filter Function que se encuentre en la cadena.
+
+Devolvemos `Mono<ClientResponse>`
+
+Toda esta parte funciona igual que WebFilter.
+
+## WebClient - Attributes
+
+En WebClient podemos tener varias funciones de filtro (Filter Function).
+
+Una función de filtro puede pasar información sobre la petición a otra función de filtro usando atributos.
+
+![alt WebClient Attributes](./images/33-WebClientAttributes.png)
+
+También vemos en la imagen que pueden pasarse estos atributos desde las clases de servicio.
+
+Por ejemplo, una clase de servicio puede añadir la funcionalidad de logging, pero la otra clase de servicio puede no querer esta funcionalidad de logging.
+
+Usando estos atributos podemos controlar como van a trabajar estas funciones de filtro.
+
+Para ejecutar las pruebas no olvidar primero ejecutar `external-services.jar`. Vamos a trabajar con el endpoint GET `/demo02/lec09/product/{id}`.
+
+En `src/test/java/com/jmunoz/playground.tests.sec07` modificamos la clase:
+
+- `Lec089ExchangeFilterTest`
+  - Añadimos atributos a nuestra funcionalidad de logger. Nuestra clase de servicio va a enviar un flag para habilitar o no este logging.
+
+Lo importante aquí es entender que podemos tener funciones o clases de utilidad reutilizables que podemos adjuntar al WebClient (los filtros), pero que podemos habilitarlos/deshabilitarlos, o enviarles cualquier información, utilizando atributos.
+
+# Streaming
+
+## Introduction
+
+![alt Communication Patterns](./images/34-CommunicationPatterns.png)
+
+Tradicionalmente, todos hemos usado el estilo de comunicación `request -> response`. Enviamos una petición al servidor backend y este nos devuelve una respuesta.
+
+Sin embargo, usando el tipo Publisher Flux, accedemos a patrones de comunicación adicionales usando el modelo reactivo WebFlux:
+
+- `request -> streaming response`: El cliente envía una petición al servidor backend y el backend provee varias respuestas en streaming de vuelta al cliente.
+  - Hay muchos casos de uso para este modelo de comunicación, por ejemplo una descarga de fichero, o cuando reservamos un Uber, y desde su app nos van mandando mensajes indicando lo que queda para que llegue el conductor.
+  - La experiencia de usuario mejora mucho con este patrón de comunicación, porque el cliente no tiene que estar enviando la petición una y otra vez al servidor backend, sino que es el servidor el que va proveyendo actualizaciones periódicas.
+- `streaming request -> response`: El cliente envía peticiones en streaming al servidor backend y el backend server devuelve una sola respuesta al cliente.
+  - Ejemplos de casos de uso serían, por ejemplo, una subida de fichero o de data, como cuando desde un reloj inteligente Apple emitimos las pulsaciones del corazón al servidor de Apple en formato de streaming.
+- `bidirectional streaming`: Tenemos streaming en ambos lados. Es una combinación de los dos patrones de comunicación anteriores.
+  - Ejemplos de casos de uso serían aplicaciones interactivas como juegos online, un chat...
+
+Todo esto ya lo vimos aquí `https://github.com/JoseManuelMunozManzano/Mastering-Java-Reactive-Programming?tab=readme-ov-file#por-qu%C3%A9-no-usar-virtual-threads`.
+
+## Uploading Million Products - Usecase
+
+Cuando hablamos de streaming, nos vamos a centrar en `servicio => servicio`, es decir, comunicación backend entre servicios.
+
+Vamos a hacer un ejemplo: Es una prueba de concepto para usar una de las mayores compañías e-commerce. El caso de uso es subir millones de productos en su plataforma.
+
+Esta aplicación de terceros tiene una API que expone un POST para crear un producto. ¿Debemos usar esa API para llamar una y otra vez, millones de veces? Estos servicios suelen permitir subir productos de 10 en 10, y vamos a tener que esperar para poder mandar los siguientes 10.
+
+Además de exponer la API POST, también tienen un servicio para poder subir ficheros CSV, pero esto también plantea muchos problemas.
+
+Aquí quedan resumidas las posibilidades que tenemos y sus inconvenientes:
+
+- POST
+  - Se incrementa el tráfico / latencia de red
+  - Tiempo de espera innecesario
+  - Validaciones redundantes
+- Fichero de subida CSV
+  - El fichero puede estar corrupto
+  - Escapar "," en los comentarios de los productos
+  - Compleja estructura de datos JSON anidada, imposible de representar usando CSV
+
+La técnica de `streaming` tiene muchas ventajas y puede ofrecer una mejor experiencia de usuario para nuestros clientes:
+
+- Establecemos conexión UNA VEZ y enviamos mensajes en modo streaming, sin tener que preocuparnos de peticiones en paralelo
+- No necesitamos que la request anterior se complete
+- Se reduce el tráfico / latencia de red
+- Podemos usar JSON para crear un product / item
+
+## JSON Lines
+
+Vamos a hablar del formato JSON.
+
+![alt JSON Array](./images/35-JSONArray.png)
+
+Lo que vemos en la imagen es un formato JSON Array, que tiene un problema. Digamos que hacemos una petición GET y obtenemos los primeros 1000 productos.
+
+La respuesta comienza con `[` seguido del primer producto, luego el segundo... hasta el producto mil y por último terminamos con `]`.
+
+Imaginemos que durante la respuesta, en el producto 999 el server falla y no puede proveer `]`. Si el cliente no puede recibir el corchete de cierre, no puede parsear la data, es decir, la data está corrupta.
+
+Esto es muy similar a todo o nada.
+
+Un Array JSON es bueno para sets de datos pequeños, pero no para sets de datos muy grandes.
+
+Imaginemos que recuperamos millones de productos y que la data está bien, termina con el corchete.
+
+Ahora el parser tiene que leerlo todo, manteniendo toda la data en memoria y, solo entonces, podrá parsear la data. Esto puede ser un problema, por ejemplo, por falta de memoria.
+
+Aquí es donde aparece el formato `JSON Line`.
+
+![alt JSON Line](./images/36-JSONLine.png)
+
+- También conocido como ND-JSON
+  - ND = new-line delimited
+- Cada línea es un objeto JSON válido que representa un producto
+  - Autocontenido
+  - Fácil de parsear
+    - Sin necesidad de tener que leer todo y mantenerlo en memoria
+    - Leemos línea a línea y se parsean independientemente
+  - Muy bueno para streaming
+  - Para sets de datos masivos
+- Un JSON Array sigue siendo bueno para data pequeña y relacionada, por ejemplo: reseñas de un producto
+
+## Project Setup
+
+En esta clase vamos a configurar nuestro proyecto para jugar con streaming.
+
+En esta sección vamos a jugar con la creación, subida, descarga... de millones de productos.
+
+En `src/java/com/jmunoz/playground/sec08` creamos los paquetes y clases siguientes:
+
+- `entity`
+    - `Product`
+- `dto`
+    - `ProductDto`: Es un record
+- `repository`
+    - `ProductRepository`
+- `mapper`
+    - `EntityDtoMapper`
+- `service`
+    - `CustomerService`
+
+## Product Service
+
+En `src/java/com/jmunoz/playground/sec08` creamos los paquetes y clases siguientes:
+
+- `service`
+  - `ProductService`
+
+## Product Streaming Upload API
+
+En `src/java/com/jmunoz/playground/sec08` creamos los paquetes y clases siguientes:
+
+- `controller`
+    - `ProductController`: Expone Product Upload API y devuelve el Dto UploadResponse. Notar `consumes = MediaType.APPLICATION_NDJSON_VALUE` porque usamos ND JSON.
+- `dto`
+    - `UploadResponse`: Es un record
+
+## Product Client
+
+Necesitamos una aplicación cliente que invoque la API para enviar los productos.
+
+En `src/test/java/com/jmunoz/playground.tests.sec08` creamos la clase:
+
+- `ProductClient`: Invoca la API y envía los productos
+
+## Client Streaming Request - Demo
+
+En `src/test/java/com/jmunoz/playground.tests.sec08` creamos la clase:
+
+- `ProductsUploadDownloadTest`: Para hacer la demo tanto de upload como de download (lo codificamos más adelante)
+
+Antes de ejecutar, modificamos `application.properties` para cambiar la property `sec=sec08` y ejecutamos nuestra app `WebfluxPlaygroundApplication`.
+
+Por último, ejecutamos nuestro cliente `ProductsUploadDownloadTest`, método `upload()`.
+
+## @RequestBody - Non-Blocking Clarification
+
+![alt CustomerDto vs Mono<CustomerDto>](./images/37-CustomerDtoVsMonoCustomerDto.png)
+
+En la imagen vemos la diferencia entre usar CustomerDto (arriba) y Mono<CustomerDto> (abajo) en `@RequestBody`. 
+
+En el recuadro de arriba, Spring esperará a que llegue `@RequestBody` para poder serializarlo. Es en el recuadro de abajo donde se usa un `@RequestBody` de una forma no bloqueante.
+
+En esta segunda imagen vemos lo que ha ocurrido en la demo de la clase anterior.
+
+![alt Flux<ProductDto>](./images/38-FluxProductDto.png)
+
+Cuando un cliente quiere subir un producto, manda la petición POST. No hay un body, solo el tipo publisher.
+
+Establecemos la conexión y Spring la acepta, asumiendo que vamos a obtener las peticiones en streaming porque el body de la petición es un Flux, así que el controller lo pasa a la capa de servicio.
+
+Pero se ejecuta el controller, porque se puede ver el log con el texto `invoked`.
+
+Ahora el cliente usa esta conexión y manda 10 productos, cada 2sg un body de un producto, en streaming, pero el texto `invoked`, como se ha dicho, solo se imprime una vez.
+
+Esto significa que la petición POST solo se invoca una vez, pero, usando la conexión, el cliente puede enviar muchos mensajes en streaming, por lo que es posible subir esos 10 productos. De hecho, con solo esa conexión, podemos enviar millones de productos. 
+
+## 1 Million Products Upload - Demo
+
+En `src/java/com/jmunoz/playground/sec08` modificamos la clase:
+
+- `controller`
+    - `ProductController`: Para la prueba del millón de subidas de productos, quitamos el log que hace que se escriba cada uno de los productos.
+
+En `src/test/java/com/jmunoz/playground.tests.sec08` modificamos la clase:
+
+- `ProductsUploadDownloadTest`: Hacemos la subida de 1 millón de productos.
+
+Antes de ejecutar, modificamos `application.properties` para cambiar la property `sec=sec08` y ejecutamos nuestra app `WebfluxPlaygroundApplication`.
+
+Por último, ejecutamos nuestro cliente `ProductsUploadDownloadTest`, método `upload()`.
+
+Vemos que tarda 13sg en crear un millón de productos. Es importante recalcar que esto ocurre en una BD H2. En una BD Postgres va a tardar algo más, sobre unos 5 minutos, debido a las escrituras en disco y a la sobrecarga debido a la transaccionalidad. 
+
+## Download API
+
+En `src/java/com/jmunoz/playground/sec08` modificamos las clases siguientes:
+
+- `controller`
+    - `ProductController`: Añadimos la API para hacer la descarga de productos. Notar `produces = MediaType.APPLICATION_NDJSON_VALUE`.
+- `service`
+    - `ProductService`: Añadimos el método para hacer la descarga de productos.
+  
+En `src/test/java/com/jmunoz/playground.tests.sec08` modificamos las clases:
+
+- `ProductClient`: Invoca la API `downloadProducts()` y recoge los productos.
+
+Los productos no se van a imprimir porque son un millón, sino que se guardan en fichero. Ver clase siguiente.
+
+## 1 Million Products Download - Demo
+
+En `src/test/java/com/jmunoz/playground.tests.sec08` creamos/modificamos las clases:
+
+- `FileWriter`: Guardamos el millón de productos en fichero en la raiz del proyecto con nombre `products.txt`.
+- `ProductsUploadDownloadTest`: Añadimos el método `download()`.
+
+Antes de ejecutar, modificamos `application.properties` para cambiar la property `sec=sec08` y ejecutamos nuestra app `WebfluxPlaygroundApplication`.
+
+Por último, ejecutamos nuestro cliente `ProductsUploadDownloadTest`, método `download()`.
+
+Tarda 8sg en escribir en fichero el millón de productos.
+
+## What About Bidirectional Stream
+
+Hemos visto los patrones de comunicación `client streaming` con la subida de ficheros y `server streaming` con la descarga de ficheros.
+
+Nos falta `bidirectional streaming`, que es una combinación de los dos anteriores.
+
+Por ejemplo, en `ProductController`, en el método `upload()` enviamos una respuesta una vez se ha realizado la petición.
+
+Si hacemos esto:
+
+```java
+return this.service.saveProducts(flux);
+```
+
+Estaríamos devolviendo un Flux<ProductDto`, con lo cual ya lo hemos transformado en un stream bidireccional.

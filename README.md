@@ -279,3 +279,88 @@ En `src/test/java/com/jmunoz/playground.tests.sec06` creamos la clase:
     - Se hacen tests de integración de los Functional Endpoints.
 - `CalculatorTest`
     - Se hacen tests de integración de `CalculatorAssignment`.
+
+## WebClient
+
+[README.md](./01-webflux-playground/README.md#webclient)
+
+Aunque ya usamos WebClient en la sección 1, ahora vamos a discutirla en detalle.
+
+WebClient es sencillamente una plantilla REST Reactiva.
+
+- API fluida basada en Reactor para hacer peticiones HTTP.
+  - Envoltorio alrededor de reactor-netty
+- Recibe la respuesta de manera No bloqueante
+- Inmutable
+- Thread safe
+
+Ver proyecto `01-webflux-playground`, paquete `tests/sec07` para nuestras prácticas de WebClient.
+
+- `dto`: Nuevo package
+    - `Product`: Es un record.
+    - `CalculatorResponse`: Es un record.
+- `AbstractWebClient`
+    - Clase abstracta que será extendida por varias clases. Aquí tendremos métodos de utilidad.
+- `Lec01MonoTest`
+    - Vamos a realizar una petición GET sencilla.
+    - Vamos a trabajar con el endpoint `/demo02/lec01/product/{id}`
+    - El id va de 1 a 100 y cada call le lleva 1 segundo responderlo. 
+- `Lec02FluxTest`
+    - Vamos a realizar una petición GET que devuelve una respuesta streaming.
+    - Vamos a trabajar con el endpoint `/demo02/lec02/product/stream`
+    - Este endpoint provee 10 productos como stream, con 500ms de delay entre cada uno de ellos. No es necesario pasar ningún id. 
+- `Lec03PostTest`
+    - Vamos a trabajar con el endpoint `/demo02/lec03/product`
+    - Este endpoint acepta una petición POST para un producto y le lleva 1 segundo responder.
+- `Lec04HeaderTest`
+    - Vamos a trabajar con el endpoint `/demo02/lec04/product/{id}`
+    - Este endpoint espera un header con la propiedad `caller-id`, es decir, estaríamos indicando quién llama al servicio. Si no viene este header, no enviaremos la respuesta.
+- `Lec05ErrorResponseTest`
+    - Vamos a trabajar con el endpoint `/demo02/lec05/calculator/{first}/{second}`
+    - Hace la operación matemática y devuelve el resultado. Ambos parámetros deben ser mayores que cero. En el header mandamos `operación` y alguna de estas operaciones como valor `+, -, *, /`. En caso contrario la operación fallará con status 404 y devolverá un objeto ProblemDetail.
+- `Lec06QueryParamsTest`
+    - Vamos a trabajar con el endpoint `/demo02/lec06/calculator`
+    - Es lo mismo que hemos visto en `Lec05ErrorResponseTest` pero en vez de usar `Path Variables` y un header, usamos `Query Parameters`.
+- `Lec07BasicAuthTest`
+    - Vamos a trabajar con el endpoint `/demo02/lec07/product/{id}`
+    - El valor de id puede ir de 1 a 100.
+    - Si no se envían las credenciales `username: java, password: secret` devuelve 401.
+- `Lec08BearerAuthTest`
+    - Vamos a trabajar con el endpoint `/demo02/lec08/product/{id}`
+    - El valor de id puede ir de 1 a 100.
+    - Si no se envía el bearer token `Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9` devuelve 401.
+- `Lec089ExchangeFilterTest`
+    - Vamos a trabajar con el endpoint `/demo02/lec09/product/{id}`
+    - El valor de id puede ir de 1 a 100.
+    - Espera que se envíe un nuevo bearer token `Authorization: Bearer [generate new token]` cada vez.
+    - Para enviar un nuevo token se usa `UUID.randomUUID().toString().replace("-", "")`.
+    - También creamos otro Filter Function para añadir funcionalidad de logging.
+    - Añadimos atributos a nuestra funcionalidad de logger. Nuestra clase de servicio va a enviar un flag para habilitar o no este logging.
+
+## Streaming
+
+[README.md](./01-webflux-playground/README.md#streaming)
+
+Ver proyecto `01-webflux-playground`, paquete `sec08`.
+
+- `entity`
+    - `Product`
+- `dto`
+    - `ProductDto`: Es un record
+    - `UploadResponse`: Es un record
+- `repository`
+    - `ProductRepository`
+- `mapper`
+    - `EntityDtoMapper`
+- `service`
+    - `CustomerService`
+- `service`
+    - `ProductService`
+- `controller`
+    - `ProductController`: Expone Product Upload API y devuelve el Dto UploadResponse. Notar `consumes = MediaType.APPLICATION_NDJSON_VALUE` porque usamos ND JSON.
+
+En `src/test/java/com/jmunoz/playground.tests`, paquete `sec08`.
+
+- `ProductClient`: Invoca la API y envía los productos
+- `ProductsUploadDownloadTest`: Para hacer la demo tanto de upload como de download (lo codificamos más adelante)
+- `FileWriter`: Guardamos el millón de productos en fichero en la raiz del proyecto con nombre `products.txt`.
