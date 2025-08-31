@@ -1816,8 +1816,6 @@ En `src/java/com/jmunoz/playground/sec08` creamos los paquetes y clases siguient
     - `ProductRepository`
 - `mapper`
     - `EntityDtoMapper`
-- `service`
-    - `CustomerService`
 
 ## Product Service
 
@@ -1935,3 +1933,151 @@ return this.service.saveProducts(flux);
 ```
 
 Estaríamos devolviendo un Flux<ProductDto`, con lo cual ya lo hemos transformado en un stream bidireccional.
+
+# Server Sent Events / SSE
+
+Vamos a hablar de los Server Sent Events, también conocidos como SSE o EventSource.
+
+## Introduction
+
+Comprendamos primero el problema.
+
+![alt SSE Qué resuelve](./images/39-SSEWhatResolves.png)
+
+Consideremos una plataforma de trading o un sitio de noticias que muestra resultados de elecciones, o un videojuego del que queremos saber las puntuaciones.
+
+Vemos que hay mucha gente que se conecta al servidor, vía un navegador, a la vez. En esos casos, para proveer la última puntuación, o el último stock price o el último conteo de una votación, el frontend tiene que estar llamando una y otra vez al backend, preguntando por si tiene alguna actualización.
+
+Si hay alguna actualización, entonces se mostrará en el navegador, pero si no, tener que estar llamando cada segundo o cada 5 segundos al backend es una pérdida de tiempo y de recursos.
+
+Aquí es donde Server Sent Events es de mucha ayuda.
+
+![alt SSE Qué es](./images/40-SSEWhatIs.png)
+
+- Los Server Sent Events son un mecanismo por el cual el servidor backend puede hacer push de eventos en stream al frontend cuando hay alguna actualización.
+- Es una comunicación de una vía porque el navegador NO tiene que llamar al backend para preguntar si hay actualizaciones.
+  - Es el servidor mismo el que enviará la data cuando haya actualizaciones.
+  - Por eso es una comunicación de una vía desde el backend al frontend.
+
+Implementar estos servidores y eventos usando WebFlux es muy fácil. Como tenemos que hacer stream de mensajes al frontend, tenemos que devolver un Flux proveyendo `MediaType.TEXT_EVENT_STREAM_VALUE`.
+
+Aquí mostramos los tipos de MediaType que hemos visto. El primero es para comunicación de servicio a servicio, mientras que el segundo es el MediaType que utilizaremos para una comunicación con el navegador.
+
+Esto es porque los navegadores tienen su propia especificación. Esperan que los mensajes estén codificados en un formato específico, o no lo entenderán.
+
+```java
+// Flux<T>
+MediaType.APPLICATION_NDJSON_VALUE; // service to service
+MediaType.TEXT_EVENT_STREAM_VALUE; // to browser
+```
+
+Para jugar con los SSE, vamos a hacer uso de nuestro `ProductService`.
+
+Vamos a asumir que nuestros usuarios están interesados en nuevos productos, así que esperan que el servidor backend les notifique cuando se añadan nuevos productos.
+
+Dado este caso de uso, vamos a ver como se implementa usando Server Sent Events.
+
+La parte más difícil de ver de este requerimiento de negocio es, ¿cómo podemos enviar un mensaje cuando se añade un nuevo producto?, y ¿cómo sabemos cuando se ha añadido un nuevo producto?
+
+Para esto vamos a hacer uso de un concepto llamado `sinks`. Un Sink es algo que actúa a la vez como un publisher y un subscriber.
+
+![alt Sinks](./images/41-Sinks.png)
+
+En la imagen vemos como varios threads en la parte izquierda pueden emitir data mientras en el final de la parte derecha se actúa como un Flux a través del cual los subscribers pueden observar los items.
+
+Esto es lo que vamos a usar para crear un stream de un nuevo producto.
+
+## Sinks Configuration
+
+En `src/java/com/jmunoz/playground/sec09` creamos los paquetes y clases siguientes, copiados de `sec08` salvo los que se indiquen:
+
+- `entity`
+    - `Product`
+- `dto`
+    - `ProductDto`: Es un record
+    - `UploadResponse`: Es un record
+- `repository`
+    - `ProductRepository`
+- `mapper`
+    - `EntityDtoMapper`
+- `service`
+    - `ProductService`
+- `controller`
+    - `ProductController`
+- `config`: Nuevo package
+  - `ApplicationConfig`: Exponemos un bean para Sinks donde emitimos `ProductDto`.
+
+## Emitting Items via Sink
+
+En `src/java/com/jmunoz/playground/sec09` modificamos un fuente en el siguiente paquete:
+
+- `service`
+  - `ProductService`: Añadimos nuestro sink al servicio.
+
+## Exposing Streaming API
+
+En `src/java/com/jmunoz/playground/sec09` modificamos un fuente en el siguiente paquete:
+
+- `controller`
+    - `ProductController`: Notar `produces = MediaType.TEXT_EVENT_STREAM_VALUE`.
+
+## SSE Demo
+
+Vamos a probar lo que tenemos y en las siguientes clases vamos a añadir otro requerimiento.
+
+Antes de ejecutar, modificamos `application.properties` para cambiar la property `sec=sec09` y ejecutamos nuestra app `WebfluxPlaygroundApplication`.
+
+Vamos al navegador, a la ruta `http://localhost:8080/products/stream`. No veremos nada porque no tenemos ningún producto.
+
+Abrimos Postman e importamos el archivo incluido en la carpeta `postman/sec09` para crear productos..
+
+En cuanto creemos un producto usando Postman, a la vez en el navegador aparecerá ese producto, es decir, estamos notificando al usuario un nuevo producto.
+
+Cerramos el navegador y abrimos un terminal. Ejecutar `curl http://localhost:8080/products/stream`. Veremos el último producto creado, es decir, si creamos 5 productos, nos aparecerá solo el 5.
+
+## Price Filter Implementation
+
+Vamos a añadir un par de requerimientos a nuestra app:
+
+- Añadimos un producto cada 1 seg.
+- Los usuarios quieren ver los nuevos productos mostrados en formato tabla dentro de la interfaz del navegador.
+  - Para la interfaz de usuario, usaremos HTML y Vanilla JS. Esto no es importante.
+- Los usuarios necesitan la posibilidad de filtrar productos basada en el precio.
+  - Unos usuarios solo querrán ser notificados si el producto es menor que 50, y otros si es menor que 80...
+
+En `src/java/com/jmunoz/playground/sec09` creamos/modificamos fuentes en los siguientes paquetes:
+
+- `service`
+    - `DataSetupService`: Añade un producto cada sg. Se ejecuta automáticamente al ejecutarse la app.
+- `controller`
+    - `ProductController`: Añadimos el filtro basado en el precio.
+
+## Adding UI - Index HTML
+
+En `src/java/resources/static` creamos el siguiente archivo html.
+
+- `index.html`: Es la UI de nuestra app del paquete `sec09`.
+
+Cuando pulsamos el botón `Notify me!!` empezamos a observar productos filtrados por el precio indicado en la caja de texto.
+
+## Price Filter Demo via UI
+
+Antes de ejecutar, modificamos `application.properties` para cambiar la property `sec=sec09` y ejecutamos nuestra app `WebfluxPlaygroundApplication`.
+
+Vamos al navegador, abrimos dos ventanas para simular dos usuarios diferentes, y vamos a la ruta `http://localhost:8080`.
+
+En la primera ventana indicamos un max price `80` y en la segunda `50` y en ambas ventanas pulsamos el botón `Notify me!!`.
+
+Veremos como van apareciendo los productos que cumplen ese filtro.
+
+Pulsar el botón `Stop` cuando queramos dejar de recibir notificaciones.
+
+## Integration Tests
+
+Vamos a ver como escribir los tests de integración para la sección 09.
+
+En `src/test/java/com/jmunoz/playground.tests.sec09` creamos la clase:
+
+- `ServerSentEventsTest`: Tests de integración de SSE.
+
+Para probarlo, solo tenemos que ejecutar este test.
