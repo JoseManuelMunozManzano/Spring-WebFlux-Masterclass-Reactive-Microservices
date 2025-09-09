@@ -364,3 +364,54 @@ En `src/test/java/com/jmunoz/playground.tests`, paquete `sec08`.
 - `ProductClient`: Invoca la API y envía los productos
 - `ProductsUploadDownloadTest`: Para hacer la demo tanto de upload como de download (lo codificamos más adelante)
 - `FileWriter`: Guardamos el millón de productos en fichero en la raiz del proyecto con nombre `products.txt`.
+
+## Server Sent Events / SSE
+
+Vamos a hablar de los Server Sent Events, también conocidos como SSE o EventSource.
+
+[README.md](./01-webflux-playground/README.md#server-sent-events--sse)
+
+Ver proyecto `01-webflux-playground`, paquete `sec09`. Los fuentes están copiados de `sec08`, salvo los que se indiquen.
+
+- `entity`
+    - `Product`
+- `dto`
+    - `ProductDto`: Es un record
+    - `UploadResponse`: Es un record
+- `repository`
+    - `ProductRepository`
+- `mapper`
+    - `EntityDtoMapper`
+- `service`
+    - `ProductService`
+    - `DataSetupService`: Añade un producto cada sg. Se ejecuta automáticamente al ejecutarse la app.
+- `controller`
+    - `ProductController`
+- `config`: Nuevo package
+    - `ApplicationConfig`: Exponemos un bean para Sinks donde emitimos `ProductDto`.
+
+En `src/java/resources/static` creamos el siguiente archivo html.
+
+- `index.html`: Es la UI de nuestra app del paquete `sec09`.
+
+En `src/test/java/com/jmunoz/playground.tests.sec09` creamos la clase:
+
+- `ServerSentEventsTest`: Tests de integración de SSE.
+
+## Performance Optimization
+
+Aunque WebFlux es muy poderoso, hay ciertas tareas que no va a poder resolver.
+
+En esta sección hablamos de configuraciones avanzadas y mejores prácticas que pueden ayudarnos a escalar nuestra aplicación.
+
+[README.md](./01-webflux-playground/README.md#performance-optimization)
+
+Ver proyecto `01-webflux-playground`, paquete `tests/sec10` para nuestras prácticas de Connection Pooling.
+
+Los fuentes están copiados de `sec07`, salvo los que se indiquen.
+
+- `dto`
+    - `Product`
+- `AbstractWebClient`
+- `Lec01HttpConnectionPoolingTest`: Nueva clase
+- `Lec02Http2Test`: Nueva clase

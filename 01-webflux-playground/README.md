@@ -1434,7 +1434,7 @@ En la imagen, en el método `post()` vemos `bodyToValue(...)`. Recordar que se u
 
 Para trabajar con `WebClient` vamos a necesitar una aplicación con la que interactuar. Esta será `external-services.jar`.
 
-Para ejecutarla, solo tenemos que acceder a una terminal y ejecutar: `java -jar external-service.jar`.
+Para ejecutarla, solo tenemos que acceder a una terminal y ejecutar: `java -jar external-services.jar`.
 
 Luego, acceder en el navegador al Swagger de este servicio: `http://localhost:7070/webjars/swagger-ui/index.html`. Vamos a usar `demo02`.
 
@@ -2081,3 +2081,322 @@ En `src/test/java/com/jmunoz/playground.tests.sec09` creamos la clase:
 - `ServerSentEventsTest`: Tests de integración de SSE.
 
 Para probarlo, solo tenemos que ejecutar este test.
+
+# Performance Optimization
+
+## Introduction
+
+Aunque WebFlux es muy poderoso, hay ciertas tareas que no va a poder resolver.
+
+En esta sección hablamos de configuraciones avanzadas y mejores prácticas que pueden ayudarnos a escalar nuestra aplicación.
+
+- Antes de ejecutar otro servidor (escalamiento horizontal) o incrementar la RAM/CPU, gastando bastante dinero...
+  - Si la app es lenta, ¿por qué?
+  - ¿Cuál puede ser el problema?
+  - ¡Como reducir costes de infraestructura!
+
+Antes de continuar, tomamos las siguientes suposiciones:
+
+- Un gran entendimiento de la programación reactiva.
+  - Sin esto, no vamos a poder ni hacer debug de los problemas que tengamos.
+- ¡No bloqueamos el event loop thread! Se entiende que comprendemos el porqué.
+
+Todo esto viene del curso anterior `https://github.com/JoseManuelMunozManzano/Mastering-Java-Reactive-Programming`.
+
+## gzip
+
+En una arquitectura de microservicios, tendremos muchas aplicaciones hablando la una con la otra. Todas estas aplicaciones pueden ser parte de una red ejecutándose en un centro de datos diferente.
+
+Nuestra aplicación puede llamar a un servicio proveedor de terceros como AWS, GCP, Shopify, etc.
+
+![alt gZip](./images/42-gzip.png)
+
+El cliente envía una petición al servidor, y este devuelve la respuesta al cliente, usando la red.
+
+Muchas veces podemos notar fácilmente que la red está congestionada, pero es muy difícil demostrarlo. Normalmente, si el tiempo de respuesta es largo, tomará bastante tiempo al cliente recibir la respuesta. A más tamaño de respuesta, más tiempo tomará al cliente recibirla.
+
+Por eso, a veces parece que alguna aplicación de servidor no funciona correctamente, su rendimiento es bajo. De ahí el pensamiento de que se necesitan más servidores.
+
+- Si el tamaño de la respuesta es grande (en KBs), tomará más tiempo al cliente recibir la respuesta.
+- El cliente podría observar un incremento en el tiempo de respuesta. Las apps pueden aparentar un rendimiento pobre.
+- Pero puede que solo sea un problema de latencia de red.
+
+Aquí es donde entra en juego `gZip`.
+
+- Es una técnica que puede usar el servidor para comprimir la respuesta antes de enviarla por la red.
+
+Como el tamaño se ha reducido debido a la compresión, ahora llegará antes al cliente, así que se mejora el tiempo de respuesta y el rendimiento.
+
+Antes de habilitar `gzip` tenemos que tener en cuenta lo siguiente:
+
+- ¡Funciona bien en una **red congestionada** donde el **tamaño de la respuesta es grande**!
+- Notas:
+  - El servidor requiere procesamiento adicional para realizar la compresión.
+  - Puede tener efectos negativos cuando el tamaño de la respuesta es pequeño.
+  - ¡NO USAR LA MÁQUINA LOCAL PARA TESTEARLO (no va a haber latencia de red) ! ¡NO VAS A VER NINGUNA MEJORA!
+    - ¡Hay que desplegar el proyecto a un servidor y hacer pruebas con JMeter!
+
+## Enabling gzip
+
+Vamos a ver como habilitar la compresión `gzip`.
+
+En la parte del servidor, en el fichero `application.properties`, usaremos las siguientes propiedades para habilitar gzip:
+
+```
+# Server Side:
+server.compression.enabled=true
+server.compression.min-response-size=2048
+server.compression.mime-types=application/json,application/xml
+```
+
+En este ejemplo, habilitamos `gzip` para respuestas con tamaño de al menos `2Kb` y solo para `json, xml`.
+
+En la parte del cliente, en el header de la petición tenemos que incluir:
+
+```
+# Client Side Request Header:
+Accept-Encoding: gzip
+```
+
+Para que el cliente entienda la respuesta obtenida. Si no enviamos esta propiedad en la cabecera, el server no hará la compresión.
+
+IMPORTANTE: Tenemos que medir el rendimiento, porque puede que no tenga impacto.
+
+## Connection Pooling
+
+- La configuración de la conexión toma tiempo.
+- Keep-alive => para reutilizar conexiones.
+- HTTP 1.1
+  - 1 conexión por request
+
+![alt Connection Pooling](./images/43-ConnectionPooling.png)
+
+Imaginemos que tenemos nuestra aplicación de servidor escuchando en el puerto 8080 y nuestra aplicación cliente.
+
+Cuando el cliente quiere enviar una petición al servidor, se requiere una `3 way handshake` para establecer la conexión. Esto consume tiempo.
+
+Cuando tenemos que enviar muchas peticiones concurrentes al servidor remoto, tenemos que establecer conexiones una y otra vez, y esto afecta al rendimiento.
+
+En estos casos podemos habilitar `Keep-alive` para reutilizar conexiones existentes. WebClient en varios casos lo hace automáticamente.
+
+Cuando usamos `HTTP 1.1`, cosa muy común todavía, solo podemos usar una conexión por petición, es decir, una vez enviamos la petición, usando un puerto de salida aleatorio, hasta que la respuesta sea devuelta, no podemos enviar otra petición por esa conexión. Si que se puede establecer otra conexión distinta desde el cliente al servidor para mandar una nueva petición.
+
+![alt HTTP 1.1 Connections](./images/44-http11Connections.png)
+
+## Keep Alive / Connection Pooling - Project Setup
+
+Vamos a jugar con `Connection Pooling` en esta clase.
+
+Ejecutar `java -jar external-services.jar`.
+
+Vamos a trabajar con el endpoint `/demo03/product/{id}`: `http://localhost:7070/webjars/swagger-ui/index.html#/demo03`.
+
+Este endpoint provee el nombre de producto para un id de producto (desde 1 a 20.000). Es un servicio lento cuya respuesta lleva hasta 5 segundos.
+
+Usando Swagger, indicamos el valor `id = 1` y ejecutamos.
+
+Ahora, para el proyecto, en `src/test/java/com/jmunoz/playground.tests.sec10` creamos los packages y clases siguientes (copiados de `sec07` salvo los que se indiquen):
+
+- `dto`
+  - `Product`
+- `AbstractWebClient`
+- `Lec01HttpConnectionPoolingTest`: Nueva clase
+
+Ejecutamos el test `concurrentRequests()`.
+
+## HTTP Connections via netstat
+
+Para monitorizar las conexiones TCP de red de nuestro `external-services`, vamos a usar este comando: `netstat -an| grep -w 127.0.0.1.7070`.
+
+Para que se refresque el comando cada 2 segundos, usamos la utilidad `watch` de esta manera: `watch 'netstat -an| grep -w 127.0.0.1.7070'`
+
+Por tanto, antes de ejecutar el test ejecutamos nuestro `external-services` y el comando `netstat` usando `watch`.
+
+Al ejecutar el test con el valor de la variable `max = 1` vemos dos entradas, correspondientes a una conexión. El puerto 7070 corresponde al servicio externo y el puerto 54716 a mi app.
+
+![alt Netstat Demo](./images/45-NetstatDemo.png)
+
+Una vez termina el hilo principal (1 minuto), pasa a estado de espera:
+
+![alt Netstat Demo 2](./images/46-NetstatDemo2.png)
+
+Y cuando pasa otro ratillo, ese `TIME_WAIT` también desaparece. 
+
+Al ejecutar el test con el valor de la variable `max = 3` hacemos tres peticiones concurrentes. Vemos seis entradas, correspondientes a tres conexiones.
+
+![alt Netstat Demo 3](./images/47-NetstatDemo3.png)
+
+Por último, al ejecutar el test con el valor de la variable `max = 10` hacemos diez peticiones concurrentes. Vemos veinte entradas, correspondientes a diez conexiones.
+
+![alt Netstat Demo 4](./images/48-NetstatDemo4.png)
+
+Estos ejemplos muestran como el sistema operativo establece conexiones por las que podemos enviar peticiones y recibir respuestas.
+
+## Configuring Connections Pool Size
+
+En la clase `Lec01HttpConnectionPoolingTest` creamos un nuevo test `concurrentRequests2()` y lo ejecutamos, sin olvidarnos de ejecutar primero nuestro servicio externo.
+
+Vemos que nos lleva 5 segundos el obtener 250 respuestas a nuestras 250 peticiones.
+
+Vemos que nos lleva 10 segundos el obtener 260 respuestas a nuestras 260 peticiones.
+
+Esta diferencia se debe a que `flatMap` se ejecuta en paralelo (`parallel`) hasta 256, siendo este número el tamaño de su cola. Esto también lo vimos en el curso anterior.
+
+Esto es configurable, pudiendo indicarle a `flatMap` que lance más peticiones concurrentes a la vez.
+
+Pero tener en cuenta que hay otro límite, el de WebClient, que por defecto (es configurable también) solo puede manejar hasta 500 conexiones con un servicio remoto.
+
+La configuración de WebClient es como sigue (createWebClient es un método nuestro que puede verse en `AbstractWebClient`):
+
+```java
+// Esta es la forma de configurar WebClient para permitir más conexiones que las por defecto (500).
+private final WebClient client = createWebClient(b -> {
+    // Creamos un provider
+    // El nombre del builder da igual, he puesto jomuma.
+    // Se recomienda usar LIFO en vez de FIFO para que intente cerrar las conexiones más antiguas.
+    // pendingAcquireMaxCount -> Si el máximo es 501 peticiones, el resto (si quiero 1000) los ponemos en la cola.
+    //      Como si fuera el tamaño de la cola.
+    var poolSize = 501;
+    var provider = ConnectionProvider.builder("jomuma")
+            .lifo()
+            .maxConnections(poolSize)
+            .pendingAcquireMaxCount(poolSize * 5)
+            .build();
+
+    // Este es el cliente HTTP Reactor.
+    // El problema de personalizar esto es que perdemos keep-alive, gzip, to-do.
+    // Así que tenemos que configurarlo también aquí.
+    var httpClient = HttpClient.create(provider)
+            .compress(true)
+            .keepAlive(true);
+
+    // Una vez tenemos el provider y el client, lo pasamos al builder.
+    b.clientConnector(new ReactorClientHttpConnector(httpClient));
+});
+```
+
+Con esta configuración, obtener 501 resultados de 501 peticiones nos lleva de nuevo 5 segundos.
+
+## Pool Size Calculation
+
+Que podamos ajustar el `poolSize` no significa que tengamos que hacerlo. Lo hemos hecho para fines de demostración.
+
+En la vida real no nos va a hacer falta ajustar este tamaño del pool.
+
+Lo que ocurre es que, en que nuestro ejemplo, el servicio remoto es muy lento (5 sg) y estamos enviando muchas peticiones concurrentes (500).
+
+Pero en la vida real, nuestra aplicación podría llamar a un servicio que puede responder en, digamos, 100 ms. Es decir, que con 500 conexiones podemos procesar 5000 peticiones por segundo, que es muchísimo.
+
+Por tanto, SOLO SI ES ABSOLUTAMENTE NECESARIO TENDREMOS QUE AJUSTAR EL `poolSize`.
+
+## SocketException - Too Many Open Files Issue
+
+En esta clase vamos a ver otro cuello de botella.
+
+En la clase `Lec01HttpConnectionPoolingTest` creamos un nuevo test `concurrentRequests3()` con el que queremos procesar 10000 peticiones concurrentes, y lo ejecutamos.
+
+Aunque al instructor le da un error `SocketException: Too many open files`, a mi me devuelve resultados, pero tras 6 sg.
+
+Independientemente del resultado concreto para esta prueba, lo importante es lo siguiente: En un momento dado vamos a enfrentarnos a problemas de este tipo (excepciones de socket, reseteo de conexiones...)
+
+Esto es porque no podemos configurar WebClient aumentando el máximo de conexiones posibles así como así. Nuestro Sistema Operativo es finito y en algún momento va a fallar, alcanzando ese cuello de botella, y no vamos a poder hacer nada porque no depende de WebFlux, sino del Sistema Operativo.
+
+No olvidar que gracias a `gzip` obtendremos antes la respuesta y que esa conexión se podrá volver a usar.
+
+## HTTP2 Introduction
+
+- HTTP 1.1 => 1997
+- HTTP2 => 2015
+
+![alt HTTP 1.1 vs HTTP2](./images/49-HTTP1vsHTTP2.png)
+
+Ya hemos visto como funciona HTTP 1.1. Fue estandarizado a finales de los 90 y casi todos seguimos usándolo en producción en nuestra arquitectura de microservicios.
+
+Pero, como hemos visto, tiene limitaciones. Necesita una comunicación por petición (la primera imagen de arriba). Por tanto, para procesar `x` peticiones concurrentes necesita `x` conexiones.
+
+Recordar que no hablamos de hilos, sino de conexiones.
+
+Para evitar estos problemas, se propuso un nuevo protocolo HTTP2 que se estandarizó en 2015 (la segunda imagen de arriba).
+
+HTTP2 no necesita tantas conexiones. De hecho, solo necesita una conexión por la que puede enviar muchas peticiones concurrentes. Esto hace que no necesite de tantos recursos del sistema.
+
+Sin embargo, la adopción de HTTP2 se ha ido incrementando lentamente en estos últimos años.
+
+**Características**
+
+- Multiplexing: Es el nombre que se le da a La habilidad de enviar muchas peticiones concurrentes usando una sola conexión. 
+- HTTP2 es un protocolo binario (HTTP 1.1 era un protocolo textual)
+- HTTP2 habilita técnicas de compresión del header, para reducir el tamaño de las cabeceras de la petición y de la respuesta.
+  - Esto lleva a tiempos de transmisión más rápidos.
+
+En general, podemos transmitir mensajes de forma mucho más eficiente entre el cliente y el servidor usando HTTP2.
+
+## HTTP2 - Demo
+
+Vamos a jugar con HTTP2.
+
+No olvidar ejecutar nuestro servicio externo: `java -jar external-services.jar`.
+
+- Nuestro servicio externo `external-services.jar` soporta HTTP2.
+  - El server soporta tanto HTTP 1.1 como HTTP2.
+- El cliente debe enviar qué protocolo quiere usar.
+
+Para habilitar HTTP2 en el lado del servidor, en `application.properties` tenemos que indicar la siguiente propiedad:
+
+```
+// server side
+server.http2.enabled=true
+```
+
+Cuando habilitamos esta propiedad en el servidor, este soportará tanto HTTP 1.1 como HTTP2. Esto es por si el cliente no entiende HTTP2, que podamos seguir trabajando con HTTP 1.1, aunque hay formas de indicar que solo se soporte HTTP2. 
+
+`external-services.jar` lo tiene habilitado.
+
+En el proyecto `src/test/java/com/jmunoz/playground.tests.sec10` creamos la clase:
+
+- `Lec02Http2Test`
+
+Para monitorizar las conexiones TCP de red de nuestro `external-services`, vamos a usar este comando: `watch 'netstat -an| grep -w 127.0.0.1.7070'`
+
+Ejecutamos el test con la variable `var max = 3` y vemos que usamos una sola conexión.
+
+Ejecutamos el test con la variable `var max = 100` y vemos que usamos también una sola conexión.
+
+Ejecutamos el test con la variable `var max = 10_000` y vemos que usamos también una sola conexión, y todas las peticiones se han procesado correctamente en apenas 6 segundos. Este segundo de más es debido al tiempo de CPU que requiere decodificar 10.000 mensajes.
+
+**NOTAS**
+
+- Podríamos no ver el beneficio de usar HTTP2 si no tenemos muuuchas peticiones concurrentes.
+- Tenemos que asegurarnos que el `load balancer` soporte HTTP2.
+
+## SubscribeOn - For Blocking IO
+
+NOTA: Esta parte es repetida de lo ya dicho en la parte JPA en Spring WebFlux.
+
+- ¡Tenemos que intentar usar librerías reactivas en nuestra aplicación!
+  - R2DBC, mongo, redis, kafka, pulsar, elasticsearch...
+- ¿Qué pasa si no las uso?
+
+Si no usamos ninguna librería reactiva en nuestra aplicación, esta es la alternativa:
+
+![alt Subscribe On](./images/50-SubscribeOn.png)
+
+Notar que se usa el scheduler `boundedElastic`.
+
+Si nuestra librería hace una petición IO y no es reactiva, probablemente sea una petición bloqueante (me refiero a invokeMethod()).
+
+Para evitar bloquear el event loop thread, usaremos el operador `subscribeOn()` junto con el scheduler `boundedElastic`.
+
+Si usamos Java 21 o superior, también podemos usar Virtual Threads.
+
+## Summary
+
+![alt Performance Optimization - Summary](./images/51-PerformanceOptimizationSummary.png)
+
+Si ni con todo lo que hemos visto somos capaces de resolver nuestro problema, es posible que tengamos que usar otra herramienta/tecnología para hacer nuestra aplicación más escalable y resiliente.
+
+Por ejemplo, Redis, un sistema de almacenaje superrápido diseñado para aplicaciones que necesitan acceso a la data en tiempo real. Simplifica tareas como caching y gestión de data.
+
+Otra tecnología es GraphQL, usando para transferencia eficiente de data entre el frontend y el backend.
+
+El uso de patrones de diseño puede hacer nuestras aplicaciones más resilientes y manejar transacciones distribuidas.
