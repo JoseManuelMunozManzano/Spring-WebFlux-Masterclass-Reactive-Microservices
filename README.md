@@ -415,3 +415,176 @@ Los fuentes están copiados de `sec07`, salvo los que se indiquen.
 - `AbstractWebClient`
 - `Lec01HttpConnectionPoolingTest`: Nueva clase
 - `Lec02Http2Test`: Nueva clase
+
+## Final Project - Reactive Microservices
+
+Ver los siguientes proyectos:
+
+- `customer-service`
+- `external-services.jar`: Es un servicio externo de terceros.
+  - Ejecutar `java -jar external-services.jar`
+  - Acceder a Swagger: `http://localhost:7070/webjars/swagger-ui/index.html#/demo04`
+    - Los endpoints que nos interesan están bajo el apartado `demo04`.
+- `aggregator-service`
+
+### Trading Platform - Introduction
+
+Vamos a desarrollar una plataforma de trading con estos servicios:
+
+![alt Trading Platform](./images/07-TradingPlatform.png)
+
+Tenemos tres servicios, uno de los cuales, `Aggregator-Service` es lo que se suele llamar un `servicio orquestador` o `BFF Backend For FrontEnd`, mientras que los otros dos servicios son servicios privados.
+
+Primero vamos a ver el flujo de trabajo de alto nivel y luego bajaremos a los servicios individuales, detalles de la API de bajo nivel, etc.
+
+**Workflow**
+
+![alt Trading Platform Workflow](./images/08-TradingPlaformWorkflow.png)
+
+`Stock-Service` emite cambios de precios de acciones periódicamente, como por ejemplo, acciones de Google a `$10`, Amazon `$8`, etc.
+
+`Aggregator-Service` lo consumirá y lo expone como un `server send events API` para los clientes.
+
+Los usuarios pueden observar los cambios de precios y decidir comprar/vender acciones cuando quieran.
+
+Por ejemplo, veamos este flujo de trabajo.
+
+Esto es lo que vamos a desarrollar, desde un punto de vista de alto nivel:
+
+![alt Trading Platform Workflow 2](./images/09-TradingPlaformWorkflow2.png)
+
+Imaginemos que queremos comprar 10 acciones de Google.
+
+- El cliente envía la petición de comerciar (trade) a `Aggregator-Service`.
+- `Aggregator-Service` llama a `Stock-Service` para obtener el precio actual de las acciones de Google antes de comprar/vender.
+- `Aggregator-Service` llama a `Customer-Service` para finalizar la transacción de compra/venta.
+- `Customer-Service` gestiona la información de cliente, portfolio, balance de cuentas, etc.
+  - `BUY`: Si el cliente tiene saldo, se realizará la compra.
+  - `SELL`: Si el cliente posee acciones, pueden venderse.
+- El cliente podrá ver todas sus acciones/portfolio actual, cuando acceda a su perfil.
+
+Vamos a ver ahora algunos de los detalles de bajo nivel que tenemos que tener en cuenta:
+
+- `Stock-Service` es un servicio externo de terceros que no tenemos que implementar.
+  - Lo tenemos que integrar en nuestro sistema.
+- Como vamos a ejecutar varias aplicaciones de Spring Boot en local, los puertos que se van a emplear son los siguientes:
+    - `Aggregator-Service`: 8080
+    - `Customer-Service`: 6060
+    - `Stock-Service`: Este servicio externo usa el puerto 7070
+
+### Customer Portfolio - Requirements Discussion
+
+En esta clase vamos a ver detalles de bajo nivel para `Customer-Service`.
+
+![alt Customer Service Details](./images/10-CustomerServiceDetails.png)
+
+- No vamos a preocuparnos por el típico CRUD como crear customer, delete customer, etc. Ya hemos hecho muchos en el curso.
+- Nuestro foco va a consistir en gestionar el portfolio del customer.
+- Viendo la imagen el significado es el siguiente:
+  - Sam posee 10 acciones de GOOGLE.
+  - Mike posee 2 acciones de APPLE.
+
+El SQL que vamos a usar para este servicio es este:
+
+```roomsql
+DROP TABLE IF EXISTS customer;
+DROP TABLE IF EXISTS portfolio_item;
+
+CREATE TABLE customer (
+    id int AUTO_INCREMENT primary key,
+    name VARCHAR(50),
+    balance int
+);
+
+CREATE TABLE portfolio_item (
+    id int AUTO_INCREMENT primary key,
+    customer_id int,
+    ticker VARCHAR(10),
+    quantity int,
+    foreign key (customer_id) references customer(id)
+);
+
+insert into customer(name, balance)
+    values
+        ('Sam', 10000),
+        ('Mike', 10000),
+        ('John', 10000);
+```
+
+Hablemos de los detalles de la API:
+
+![alt Customer Service API Details 1](./images/11-CustomerServiceAPIDetails1.png)
+
+- Endpoint GET con un path variable `customerId`.
+  - Devolveremos la información del record `CustomerInformation`.
+
+![alt Customer Service API Details 2](./images/12-CustomerServiceAPIDetails2.png)
+
+- Endpoint POST con un path variable `customerId`.
+  - Recibiremos como body un objeto de tipo `StockTradeRequest`.
+  - Devolveremos como respuesta un objeto de tipo `StockTradeResponse` si todo va bien.
+    - `balance` indica la cantidad de saldo que queda una vez se ha realizado la orden.
+
+Esto sería un ejemplo de ejecución:
+
+![alt Customer Service Example](./images/13-CustomerServiceExample.png)
+
+**BUY**
+
+- Si cada acción de GOOGLE vale `$100` y quiero comprar 5 acciones, el precio total será de `$500`.
+- Confirmo que Sam (el que quiere comprar la acciones), posee ese saldo. Como tiene `$2000` lo cumple.
+  - Su saldo queda en `$1500`.
+- Vamos a su portfolio y vemos que Sam ya posee acciones de GOOGLE.
+  - Actualizamos la cantidad a 15 acciones.
+- Si Sam no tuviera registros entonces se añade un nuevo registro con la cantidad de 5 acciones.
+
+**SELL**
+
+- Si cada acción de GOOGLE vale `$100` y quiero vender 5 acciones, el precio total será de `$500`.
+- Confirmo que Sam (el que quiere vender la acciones), posee esa cantidad de acciones en su portfolio.
+    - Como tiene 10, sus acciones se actualizan a 5.
+    - Si tuviera 5 acciones, sus acciones se quedan a 0 (no se elimina el registro)
+- Su saldo se incrementa, pasando a tener `$2500`.
+
+**Exceptions**
+
+Las posibles excepciones son estas:
+
+- Customer Not Found
+- Customer does NOT have enough balance
+- Customer does NOT have enough shares
+- Devolveremos el error como Problem Detail
+  - 4xx error, donde xx será el número concreto del error
+
+### Aggregator - Introduction
+
+La misión de `AggregatorService` es de orquestación. Depende de `Stock-Service` y `Customer-Service`.
+
+Hablemos de los detalles de la API:
+
+![alt Aggregator Service API Details](./images/14-AggregatorServiceAPIDetails.png)
+
+- Endpoint GET `/stock/price-stream`.
+  - Obtendremos un stream de precios de acciones.
+- Endpoint GET `/customers/{customerId}`
+  - Lo llamaremos cuando el customer quiera obtener su portfolio.
+- Endpoint POST `/customers/{customerId}/trade`
+  - Lo llamaremos cuando el customer quiera comprar/vender acciones.
+  - Tendremos que llamar al primer endpoint de `Stock-Service` para obtener el precio de esa acción.
+  - Construiremos un objeto de tipo `StockTradeRequest` y haremos el POST a `Customer-Service`.
+
+**Exceptions**
+
+Las posibles excepciones son estas:
+
+- Customer Not Found
+  - Cuando `Customer-Service` devuelve 404
+- Invalid Trade Request
+  - Cuando fallan las validaciones de la petición de entrada
+    - Estas son validaciones sencillas (no de dominio) que tendrá `Aggregator-Service`.
+  - Cuando `Customer-Service` devuelve 400
+    - Customer does NOT have enough balance
+    - Customer does NOT have enough shares
+- Devolveremos el error como Problem Detail
+
+NOTA: `Stock-Service` no devuelve errores 4xx, por lo que no tenemos que preocuparnos de esto.
