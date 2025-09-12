@@ -588,3 +588,11 @@ Las posibles excepciones son estas:
 - Devolveremos el error como Problem Detail
 
 NOTA: `Stock-Service` no devuelve errores 4xx, por lo que no tenemos que preocuparnos de esto.
+
+## Articles
+
+Estos son algunos artículos interesantes que leer:
+
+- Como podemos usar R2DBC para fines de audit logging: `https://www.vinsguru.com/r2dbc-entity-callback/`.
+- Subida de ficheros usando Spring WebFlux: `https://www.vinsguru.com/spring-webflux-file-upload/`.
+- Añadir Security con Spring WebFlux: `https://www.vinsguru.com/spring-webflux-security/`.
